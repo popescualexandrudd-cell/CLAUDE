@@ -1,0 +1,1076 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Portal Masters</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <base target="_top">
+    
+    <!-- PWA META TAGS (Aici este linkul către Logo) -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Club Masters">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#111111">
+    
+    <link rel="apple-touch-icon" href="https://i.postimg.cc/2ythf64H/unnamed-removebg-preview-(1).png">
+    <link rel="icon" href="https://i.postimg.cc/2ythf64H/unnamed-removebg-preview-(1).png">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800;900&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js" defer></script>
+
+    <style>
+      body { font-family: 'Montserrat', sans-serif; background-color: #f4f7f9; margin: 0; padding: 0; display: flex; flex-direction: column; align-items: center; min-height: 100vh; overflow-x: hidden; color: #333; position: relative; -webkit-tap-highlight-color: transparent;}
+      .bg-orb { position: absolute; border-radius: 50%; filter: blur(90px); opacity: 0.25; z-index: -1; animation: floatOrb 12s infinite alternate ease-in-out; }
+      .orb-1 { background: #EC008C; width: 350px; height: 350px; top: -50px; left: -100px; }
+      .orb-2 { background: #00AEEF; width: 300px; height: 300px; bottom: 100px; right: -100px; animation-delay: -5s; }
+      .orb-3 { background: #C4D600; width: 250px; height: 250px; top: 30%; left: 30%; filter: blur(120px); opacity: 0.15; }
+      @keyframes floatOrb { 0% { transform: translate(0, 0) scale(1); } 100% { transform: translate(50px, 50px) scale(1.1); } }
+      
+      .header { background-color: #111; width: 100%; padding: 25px 0 15px 0; text-align: center; display: flex; flex-direction: column; align-items: center; position: relative; z-index: 2; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+      .header h1 { margin: 0; font-size: 26px; font-weight: 900; letter-spacing: 2px; color: #FFFFFF; text-transform: uppercase; }
+      .header p { margin: 5px 0 0 0; font-size: 13px; color: #C4D600; font-weight: 800; letter-spacing: 4px; }
+      
+      /* CLOPOȚEL DE NOTIFICĂRI */
+      .bell-toggle { position: absolute; top: 15px; left: 15px; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); font-size: 16px; cursor: pointer; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; z-index: 100; transition: 0.3s; color: white; padding: 0; line-height: 1; }
+      .bell-toggle:hover { background: rgba(255,255,255,0.4); transform: scale(1.1); }
+      .bell-dot { position: absolute; top: 8px; right: 10px; width: 8px; height: 8px; background: #EC008C; border-radius: 50%; box-shadow: 0 0 8px #EC008C; animation: pulseDot 2s infinite; }
+      @keyframes pulseDot { 0% { transform: scale(0.8); opacity: 0.7; } 50% { transform: scale(1.3); opacity: 1; } 100% { transform: scale(0.8); opacity: 0.7; } }
+      
+      .theme-toggle { position: absolute; top: 15px; right: 15px; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); font-size: 18px; cursor: pointer; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; z-index: 100; transition: 0.3s; color: white; padding: 0; line-height: 1;}
+      .theme-toggle:hover { background: rgba(255,255,255,0.4); transform: scale(1.1); }
+
+      .news-banner { width: 100%; background: linear-gradient(90deg, #F7941E, #EC008C, #00AEEF); color: #fff; font-weight: 900; font-size: 13px; padding: 8px 0; text-transform: uppercase; box-shadow: 0 4px 15px rgba(0,0,0,0.1); z-index: 10; text-shadow: 1px 1px 2px rgba(0,0,0,0.2); border-bottom: 3px solid #C4D600; overflow: hidden; position: relative; white-space: nowrap; }
+      .marquee-content { display: inline-block; padding-left: 100%; animation: scrollText 50s linear infinite; will-change: transform; }
+      @keyframes scrollText { 0% { transform: translateX(0); } 100% { transform: translateX(-100%); } }
+      
+      .container { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 1); width: 90%; max-width: 400px; margin-top: 35px; border-radius: 24px; box-shadow: 0 20px 40px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,1); padding: 40px 30px; box-sizing: border-box; z-index: 2; position: relative; }
+      .logo-center { width: 130px; height: auto; margin: 0 auto 25px auto; display: block; filter: drop-shadow(0 10px 15px rgba(0,0,0,0.15)); animation: floatLogo 4s ease-in-out infinite; }
+      @keyframes floatLogo { 0% { transform: translateY(0px); } 50% { transform: translateY(-8px); } 100% { transform: translateY(0px); } }
+      
+      #login-view { display: block; text-align: center; }
+      h2 { font-size: 24px; color: #111; margin-bottom: 10px; font-weight: 900; letter-spacing: 1px; }
+      input[type="tel"], input[type="text"] { width: 100%; padding: 18px; font-size: 18px; background: #fff; border: 2px solid #e0e5eb; color: #333; border-radius: 14px; box-sizing: border-box; margin-bottom: 15px; text-align: center; font-family: 'Montserrat', sans-serif; font-weight: 800; outline: none; transition: all 0.3s ease; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02); }
+      input[type="tel"]:focus, input[type="text"]:focus { border-color: #00AEEF; background: #fff; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02), 0 0 15px rgba(0, 174, 239, 0.2); transform: scale(1.02); }
+      input[type="tel"]::placeholder, input[type="text"]::placeholder { color: #adb5bd; font-weight: 600; }
+      
+      button { background: linear-gradient(135deg, #EC008C, #F7941E); color: white; border: none; padding: 18px; width: 100%; font-size: 16px; font-weight: 900; border-radius: 14px; cursor: pointer; text-transform: uppercase; font-family: 'Montserrat', sans-serif; box-shadow: 0 10px 20px rgba(236,0,140,0.25), inset 0 -4px 0 rgba(0,0,0,0.1), inset 0 2px 0 rgba(255,255,255,0.3); transition: all 0.1s ease; position: relative; overflow: hidden; }
+      button:active { transform: translateY(4px); box-shadow: 0 2px 5px rgba(236,0,140,0.2), inset 0 0 0 rgba(0,0,0,0.1), inset 0 2px 0 rgba(255,255,255,0.1); }
+      
+      .loader { display: none; width: 40px; height: 40px; margin: 25px auto 10px auto; border: 4px solid #f1f3f4; border-top: 4px solid #C4D600; border-right: 4px solid #EC008C; border-radius: 50%; animation: spinLoader 1s linear infinite; }
+      @keyframes spinLoader { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+      
+      .sync-text { display: none; margin-top: 10px; font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 2px; animation: colorPulse 1.5s infinite; }
+      @keyframes colorPulse { 0% { color: #00AEEF; } 50% { color: #EC008C; } 100% { color: #00AEEF; } }
+
+      #dashboard-view { display: none; margin-top: 10px; background: transparent; box-shadow: none; padding: 0;}
+      
+      #skeleton-view { display: none; margin-top: 10px; background: transparent; box-shadow: none; padding: 0; width: 95%; max-width: 450px; border: none; }
+      .skeleton-card { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(15px); border-radius: 16px; padding: 25px; margin-bottom: 25px; box-shadow: 0 15px 35px rgba(0,0,0,0.06); animation: skeletonPulse 1.5s infinite ease-in-out; }
+      @keyframes skeletonPulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
+      .skel-line { background: #e0e5eb; border-radius: 8px; height: 16px; margin-bottom: 10px; }
+      .skel-title { width: 60%; height: 28px; margin-bottom: 15px; }
+      .skel-sub { width: 40%; }
+      .skel-grid { display: flex; gap: 10px; margin-top: 20px; }
+      .skel-box { flex: 1; height: 80px; background: #e0e5eb; border-radius: 12px; }
+      .skel-btn { height: 50px; border-radius: 12px; margin-top: 15px; background: #e0e5eb; }
+      
+      .sync-indicator { font-size: 11px; color: #888; text-align: center; margin-bottom: 15px; font-weight: 800; text-transform: uppercase; display: flex; align-items: center; justify-content: center; gap: 5px; animation: pulseSync 1.5s infinite; background: #fff; padding: 10px; border-radius: 30px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); width: fit-content; margin-left: auto; margin-right: auto;}
+      @keyframes pulseSync { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
+
+      @keyframes slideUpFade { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: translateY(0); } }
+      .card { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); border-left: 8px solid #F7941E; border-top: 1px solid #fff; border-right: 1px solid rgba(255,255,255,0.5); border-bottom: 1px solid rgba(255,255,255,0.5); padding: 25px; border-radius: 16px; margin-bottom: 25px; box-shadow: 0 15px 35px rgba(0,0,0,0.06); position: relative; overflow: hidden; animation: slideUpFade 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+      
+      .card-title { font-size: 24px; font-weight: 900; color: #111; margin: 0 0 5px 0; text-transform: uppercase; letter-spacing: 1px; }
+      .card-subtitle { font-size: 12px; color: #666; margin: 0 0 15px 0; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+      .badge-100 { background: linear-gradient(45deg, #FFD700, #F7941E); color: #111; font-weight: 900; font-size: 12px; padding: 8px; border-radius: 8px; text-align: center; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.4); text-transform: uppercase; animation: popIn 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275); border: 1px solid #fff; }
+      
+      .stat-grid { display: grid; grid-template-columns: 1fr 1px 1fr; background: #f8f9fa; border-radius: 12px; margin-bottom: 25px; margin-top: 15px; padding: 5px 0; border: 1px solid #edf1f5; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02); }
+      .stat-box { padding: 15px; text-align: center; }
+      .stat-val { font-size: 36px; font-weight: 900; color: #0B6B2E; text-shadow: 0 2px 4px rgba(11, 107, 46, 0.1); }
+      .stat-label { font-size: 10px; color: #888; text-transform: uppercase; font-weight: 800; margin-top: 5px; letter-spacing: 2px;}
+      .stat-box.abs .stat-val { color: #d32f2f; text-shadow: 0 2px 4px rgba(211, 47, 47, 0.1); }
+      .divider { background: #e0e5eb; margin: 10px 0;}
+      
+      .progress-container { width: 100%; background: #edf1f5; border-radius: 20px; height: 18px; margin-top: 10px; overflow: hidden; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05); }
+      @keyframes moveStripes { 0% { background-position: 0 0; } 100% { background-position: 30px 0; } }
+      .progress-bar { height: 100%; width: 0%; border-radius: 20px; background-color: #00AEEF; background-image: linear-gradient(-45deg, rgba(255,255,255,0.2) 25%, transparent 25%, transparent 50%, rgba(255,255,255,0.2) 50%, rgba(255,255,255,0.2) 75%, transparent 75%, transparent); background-size: 30px 30px; animation: moveStripes 1.5s linear infinite; transition: width 1.5s cubic-bezier(0.25, 0.8, 0.25, 1); box-shadow: 0 0 12px rgba(0, 174, 239, 0.5); }
+      
+      @keyframes shineEfect { 0% { left: -100%; } 20% { left: 100%; } 100% { left: 100%; } }
+      .btn-wa { display: block; text-align: center; font-weight: 900; padding: 16px; border-radius: 12px; text-decoration: none; margin-top: 15px; font-size: 13px; text-transform: uppercase; transition: 0.3s; letter-spacing: 1px; position: relative; overflow: hidden; }
+      .btn-wa::after { content: ''; position: absolute; top: 0; left: -100%; width: 50px; height: 100%; background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.4) 50%, rgba(255,255,255,0) 100%); transform: skewX(-25deg); animation: shineEfect 4s infinite; }
+      .btn-wa:hover { transform: translateY(-2px); }
+      
+      .action-row { display: flex; gap: 10px; margin-top: 15px; }
+      .btn-action { flex: 1; padding: 14px 5px; text-align: center; border-radius: 10px; text-decoration: none; font-size: 11px; font-weight: 900; text-transform: uppercase; transition: 0.3s; box-sizing: border-box; display: flex; align-items: center; justify-content: center; gap: 5px; position: relative; overflow: hidden;}
+      .btn-cal { background: #fff; color: #333; border: 1px solid #ccc; }
+      .btn-cal:hover { background: #f1f3f4; transform: translateY(-2px); }
+      .btn-ref { background: linear-gradient(45deg, #EC008C, #F7941E); color: #fff; box-shadow: 0 4px 10px rgba(236,0,140,0.3); border: none; cursor: pointer; }
+      .btn-ref:hover { box-shadow: 0 6px 15px rgba(247,148,30,0.4); transform: translateY(-2px); }
+      
+      /* STILIZARE NOUĂ LISTĂ ARHIVĂ */
+      .cal-block { flex: 0 0 45px; text-align: center; background: #f8f9fa; border-radius: 8px; padding: 6px 0; border: 1px solid #edf1f5; margin-right: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+      .cal-day { display: block; font-size: 16px; font-weight: 900; color: #111; line-height: 1; }
+      .cal-month { display: block; font-size: 9px; font-weight: 800; color: #00AEEF; text-transform: uppercase; margin-top: 3px; }
+      .archive-pill { display: inline-block; padding: 5px 10px; border-radius: 6px; font-size: 10px; font-weight: 800; text-transform: uppercase; border: 1px solid; background: transparent; }
+
+      .pay-zone { margin-top:15px; font-size:14px; font-weight:800; padding: 15px; border-radius:12px; text-align:center; background:#ffebee; border: 1px solid #ffcdd2; color:#c62828; }
+      .btn-pay { background: #111; color: #C4D600; padding: 12px; border-radius: 10px; font-size: 11px; width: 100%; margin-top: 10px; border: none; box-shadow: 0 4px 10px rgba(0,0,0,0.1); animation: none; }
+      .btn-pay:hover { background: #222; transform: translateY(-1px); }
+      .payment-details { display: none; text-align: left; background: #fff; padding: 15px; border-radius: 10px; margin-top: 10px; font-size: 12px; color: #444; font-weight: 600; line-height: 1.6; border: 1px solid #e0e0e0; box-shadow: inset 0 2px 5px rgba(0,0,0,0.02);}
+      
+      .site-footer { margin-top: 40px; width: 100%; padding: 30px 0 90px 0; text-align: center; background: transparent; z-index: 2; position: relative;}
+      .site-footer p { font-size: 10px; color: #888; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 15px; }
+      .partner-logos { display: flex; justify-content: center; align-items: center; gap: 20px; flex-wrap: wrap; padding: 0 20px; }
+      .partner-logos img { height: 45px; width: auto; filter: grayscale(100%) opacity(0.5); transition: all 0.4s ease; cursor: pointer; }
+      .partner-logos img:hover { filter: grayscale(0%) opacity(1); transform: scale(1.1) translateY(-3px); drop-shadow(0 5px 10px rgba(0,0,0,0.1)); }
+      .legal-links { margin-top: 20px; font-size: 10px; color: #999; }
+      .legal-links a { color: #666; text-decoration: none; font-weight: 700; transition: 0.3s; }
+      .legal-links a:hover { color: #111; }
+      .help-link { display: inline-block; margin-top: 20px; font-size: 12px; color: #888; text-decoration: none; font-weight: 700; border-bottom: 1px dashed #888; transition: 0.3s; }
+      .help-link:hover { color: #EC008C; border-color: #EC008C; }
+      
+      .social-container { display: flex; justify-content: center; gap: 10px; margin: 20px 0; flex-wrap: wrap; }
+      .social-btn { background: #fff; padding: 10px 15px; border-radius: 20px; font-size: 11px; font-weight: 800; color: #333; text-decoration: none; box-shadow: 0 4px 10px rgba(0,0,0,0.05); border: 1px solid #e0e5eb; transition: 0.3s; display: flex; align-items: center; gap: 5px; }
+      .social-btn:hover { transform: translateY(-3px); box-shadow: 0 6px 15px rgba(0,0,0,0.1); color: #EC008C; border-color: #EC008C; }
+
+      .fab-offers { position: fixed; bottom: 30px; right: 30px; background: linear-gradient(135deg, #EC008C, #F7941E); color: white; border: none; border-radius: 50px; padding: 15px 25px; font-size: 14px; font-weight: 900; cursor: pointer; box-shadow: 0 10px 25px rgba(236,0,140,0.5); z-index: 9999; animation: bounce 2.5s infinite; text-transform: uppercase; letter-spacing: 1px; display: flex; align-items: center; justify-content: center; gap: 8px; width: auto; max-width: fit-content; text-decoration: none; }
+      @keyframes bounce { 0%, 20%, 50%, 80%, 100% {transform: translateY(0);} 40% {transform: translateY(-8px);} 60% {transform: translateY(-4px);} }
+
+      .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(17, 17, 17, 0.85); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index: 9999; justify-content: center; align-items: center; opacity: 0; transition: opacity 0.4s ease; }
+      .modal-box { background: #fff; width: 90%; max-width: 400px; border-radius: 24px; padding: 40px 30px 30px 30px; text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.3); position: relative; transform: scale(0.8); transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); margin-top: 0px; }
+      .modal-title { font-size: 22px; font-weight: 900; color: #d32f2f; margin: 0 0 15px 0; text-transform: uppercase; letter-spacing: 1px; }
+      .modal-text { font-size: 14px; color: #444; font-weight: 600; margin-bottom: 25px; line-height: 1.6; }
+      .btn-gdpr { display: block; background: linear-gradient(135deg, #EC008C, #F7941E); color: white; padding: 18px; border-radius: 14px; font-weight: 900; text-decoration: none; text-transform: uppercase; margin-bottom: 15px; box-shadow: 0 10px 20px rgba(236,0,140,0.3); transition: transform 0.2s ease; cursor: pointer; border: none; width: 100%; font-family: 'Montserrat', sans-serif;}
+      .btn-gdpr:active { transform: translateY(3px); }
+      .btn-close-modal { background: transparent; color: #888; font-size: 12px; font-weight: 800; border: none; text-decoration: underline; cursor: pointer; padding: 10px; width: 100%; font-family: 'Montserrat', sans-serif;}
+      .btn-close-modal:hover { color: #333; }
+      
+      .remember-container { display: flex; align-items: center; justify-content: center; margin-bottom: 25px; }
+      #rememberMe { width: 18px !important; height: 18px !important; padding: 0 !important; margin: 0 10px 0 0 !important; cursor: pointer; box-shadow: none !important; appearance: auto !important; transform: scale(1.2); }
+      .remember-label { font-size: 13px; color: #666; font-weight: 700; cursor: pointer; user-select: none; margin: 0; }
+      
+      /* DARK MODE */
+      body.dark-mode { background-color: #121417 !important; color: #ffffff; }
+      body.dark-mode .container { background: rgba(30, 30, 30, 0.85); border-color: #333; }
+      body.dark-mode input[type="tel"], body.dark-mode input[type="text"] { background: transparent; border-color: #f8f9fa; color: #fff; }
+      body.dark-mode h2, body.dark-mode .card-title, body.dark-mode .modal-title { color: #fff !important; }
+      body.dark-mode .card, body.dark-mode .skeleton-card { background: rgba(40, 40, 40, 0.95); border-top-color: #444; border-right-color: #222; border-bottom-color: #222; }
+      body.dark-mode .card-subtitle { color: #aaa !important; }
+      body.dark-mode .stat-grid { background: #2a2a2a; border-color: #444; }
+      body.dark-mode .stat-val { color: #69f0ae; }
+      body.dark-mode .stat-box.abs .stat-val { color: #ff5252; }
+      body.dark-mode .modal-box { background: #222; }
+      body.dark-mode .modal-text { color: #ccc; }
+      body.dark-mode .payment-details { background: #2a2a2a; border-color: #444; color: #ccc; }
+      body.dark-mode .btn-cal { background: #333; color: #fff; border-color: #555; }
+      body.dark-mode .btn-cal:hover { background: #444; }
+      body.dark-mode .remember-label { color: #aaa; }
+      body.dark-mode h1, body.dark-mode p.subtitle, body.dark-mode .site-footer p { color: #ffffff !important; }
+      body.dark-mode .help-link { color: #ffffff !important; }
+      body.dark-mode input::placeholder { color: #ffffff; }
+      body.dark-mode .bg-orb { display: block !important; opacity: 0.05 !important; }
+      body.dark-mode .card p[style*="background:#fff3e0"] { background: #2a2a2a !important; border-color: #444 !important; color: #ffb74d !important; }
+      body.dark-mode div[style*="background:#e8f5e9"] { background: #1b2e20 !important; border-color: #2e7d32 !important; color: #81c784 !important; }
+      body.dark-mode .btn-wa[style*="background:#25D366"] { background: #1b5e20 !important; border-color: #2e7d32 !important; color: #fff !important; }
+      body.dark-mode .btn-wa[style*="background:#F7941E"] { background: #e65100 !important; border-color: #ef6c00 !important; color: #fff !important; }
+      body.dark-mode div[style*="background:#fff9e6"] { background: #332b1a !important; border-color: #554422 !important; color: #ffb74d !important; }
+      body.dark-mode div[style*="background:linear-gradient(135deg, #fff, #fff9e6)"] { background: #332b1a !important; border-color: #554422 !important; }
+      body.dark-mode div[style*="background:linear-gradient(135deg, #fff, #e8f5e9)"] { background: #1b2e20 !important; border-color: #2e7d32 !important; }
+      body.dark-mode div[style*="background:linear-gradient(135deg, #fff, #e3f2fd)"] { background: #0d2240 !important; border-color: #153a70 !important; }
+      body.dark-mode div[style*="background:#f8f9fa"], body.dark-mode .sync-indicator { background: #222 !important; border-color: #333 !important; }
+      body.dark-mode .skel-line, body.dark-mode .skel-box, body.dark-mode .skel-btn { background: #444 !important; }
+      body.dark-mode .social-btn { background: #222; color: #fff; border-color: #444; }
+      body.dark-mode .social-btn:hover { border-color: #EC008C; }
+      
+      /* Dark mode pentru elementele de arhivă */
+      body.dark-mode .cal-block { background: #2a2a2a !important; border-color: #444 !important; }
+      body.dark-mode .cal-day { color: #fff !important; }
+      body.dark-mode .archive-item { border-bottom-color: #333 !important; }
+      body.dark-mode .archive-btn { background: #2a2a2a !important; color: #fff !important; border-color: #444 !important; }
+      body.dark-mode .archive-content { background: #222 !important; border-color: #444 !important; }
+      
+      html { overflow-x: hidden; overflow-y: auto; background-color: #f4f7f9; }
+      body { min-height: 100vh; width: 100%; max-width: 100vw; overflow-x: hidden; position: relative; margin: 0; padding: 0; }
+      @media (max-width: 480px) { .theme-toggle { right: 5px; top: 15px; width: 32px; height: 32px; font-size: 15px; } .bell-toggle { left: 5px; top: 15px; width: 32px; height: 32px; font-size: 15px; } .header h1 { font-size: 20px; padding: 0 40px; } }
+      html:has(body.dark-mode) { background-color: #121417 !important; }
+      .bg-orb { z-index: 1 !important; }
+      .container, .header, .news-banner, .site-footer { position: relative; z-index: 10 !important; }
+    </style>
+  </head>
+  <body>
+    <div class="bg-orb orb-1"></div>
+    <div class="bg-orb orb-2"></div>
+    <div class="bg-orb orb-3"></div>
+
+    <div class="header">
+      <!-- CLOPOȚEL DE NOTIFICĂRI ADĂUGAT -->
+      <button class="bell-toggle" onclick="alert('🎾 Nicio notificare nouă momentan. Fii pe fază!')">
+        🔔<span class="bell-dot"></span>
+      </button>
+
+      <button class="theme-toggle" id="themeBtn" onclick="toggleTheme()">🌙</button>
+      <h1>CLUB TENIS MASTERS</h1>
+      <p>PORTAL PĂRINȚI</p>
+    </div>
+    
+    <div class="news-banner"><div class="marquee-content" id="marquee-text"></div></div>
+    
+    <div class="container" id="login-view">
+      <img src="https://i.postimg.cc/2ythf64H/unnamed-removebg-preview-(1).png" alt="Logo Masters" class="logo-center">
+      <h2>Bine ați venit!</h2>
+      <p style="font-size:13px; color:#666; margin-bottom:30px; line-height:1.6; font-weight:500;">Introduceți numărul dvs. de telefon pentru a vedea evoluția sportivului.</p>
+      
+      <input type="tel" id="phoneInput" placeholder="07XX XXX XXX" oninput="formatPhone(this)" onkeypress="handleEnter(event)" maxlength="12">
+      <input type="text" id="prenumeInput" placeholder="Prenumele sportivului" onkeypress="handleEnter(event)" autocomplete="off" maxlength="40">
+      
+      <div class="remember-container">
+        <input type="checkbox" id="rememberMe" checked>
+        <label for="rememberMe" class="remember-label">Ține-mă minte pe acest dispozitiv</label>
+      </div>
+
+      <button onclick="login()">Intră în Cont</button>
+      
+      <!-- LOADER ȘI TEXT CARE PULSEAZĂ -->
+      <div class="loader" id="loader"></div>
+      <div class="sync-text" id="syncText">Se sincronizează datele...</div>
+      
+      <p id="errorMsg" style="color: #d32f2f; font-size: 13px; font-weight: 800; margin-top: 20px; display: none;"></p>
+      
+      <a href="https://wa.me/40726409988?text=Bun%C4%83%20ziua!%20%C3%8Ent%C3%A2mpin%20o%20problem%C4%83%20la%20autentificarea%20%C3%AEn%20Portalul%20P%C4%83rin%C8%9Bilor." target="_blank" class="help-link">Nu te poți conecta? Contactează-ne</a>
+    </div>
+
+    <div class="container" id="skeleton-view">
+      <div class="skeleton-card">
+         <div class="skel-line skel-title"></div>
+         <div class="skel-line skel-sub"></div>
+         <div class="skel-line skel-sub" style="width:30%;"></div>
+         <div class="skel-grid">
+            <div class="skel-box"></div><div class="skel-box"></div>
+         </div>
+         <div class="skel-btn"></div>
+         <div class="skel-btn"></div>
+      </div>
+    </div>
+
+    <div class="container" id="dashboard-view" style="width: 95%; max-width: 450px;">
+      <div id="athletes-container"></div>
+      <button onclick="logout()" style="background: #111; box-shadow: 0 5px 15px rgba(0,0,0,0.2); color: #fff; width: 100%; padding: 18px; font-size: 14px; font-weight: 900; border-radius: 14px; text-transform: uppercase; cursor: pointer; border: none;">Înapoi la Autentificare</button>
+    </div>
+
+    <!-- POP-UP INSTALARE PWA (APLICAȚIE) -->
+    <div id="pwa-modal" class="modal-overlay">
+      <div class="modal-box" style="text-align: center; padding-top: 30px;">
+        <h3 class="modal-title" style="color: #00AEEF; font-size: 20px;">📲 Instalează Aplicația</h3>
+        <p class="modal-text" style="font-size: 13px;">Pentru o experiență perfectă (fără bara de browser), adaugă portalul Masters pe ecranul principal al telefonului tău!</p>
+        
+        <div id="ios-instruct" style="display:none; background:#f8f9fa; padding:15px; border-radius:12px; font-size:12px; font-weight:600; text-align:left; line-height:1.6; color:#333; margin-bottom: 20px; border: 1px solid #e0e5eb;">
+          <strong style="color:#EC008C; font-size: 13px; display: block; margin-bottom: 8px;">📱 Pe iPhone (Safari):</strong>
+          1. Apasă butonul <b>Share</b> (pătratul cu săgeată în sus) din bara de jos.<br>
+          2. Alege opțiunea <b>"Add to Home Screen"</b> (Adaugă pe ecranul principal).
+        </div>
+        
+        <div id="android-instruct" style="display:none; background:#f8f9fa; padding:15px; border-radius:12px; font-size:12px; font-weight:600; text-align:left; line-height:1.6; color:#333; margin-bottom: 20px; border: 1px solid #e0e5eb;">
+          <strong style="color:#C4D600; font-size: 13px; display: block; margin-bottom: 8px;">🤖 Pe Android (Chrome):</strong>
+          1. Apasă pe cele <b>3 puncte</b> din dreapta sus.<br>
+          2. Alege opțiunea <b>"Add to Home screen"</b> (Adaugă pe ecranul de pornire).
+        </div>
+        
+        <a id="pwa-personal-link" href="#" target="_top" class="btn-gdpr" style="display:none; text-align:center; font-size:13px;">🔗 Deschide linkul meu personal (rămâi conectat)</a>
+        <button class="btn-gdpr" onclick="closePwaModal()" style="margin-top:5px;">Am înțeles</button>
+        <button class="btn-close-modal" onclick="dismissPwaModal()">Nu mai arăta acest mesaj</button>
+      </div>
+    </div>
+
+    <!-- POP-UP GDPR -->
+    <div id="gdpr-modal" class="modal-overlay">
+      <div class="modal-box" id="gdpr-box">
+        <div class="modal-title">⚠️ Acțiune Necesară</div>
+        <div class="modal-text">Salut! Te rugăm să completezi Acordul GDPR și Media pentru anul în curs. Durează doar un minut și ne ajută să organizăm antrenamentele în cele mai bune condiții! 🎾</div>
+        <a href="https://docs.google.com/forms/d/e/1FAIpQLSc8W-bndjC6SX21BHz8IfUYrXDjhrKZoWsJutR87x2mOc0DtA/viewform?usp=dialog" target="_blank" class="btn-gdpr" onclick="closeModal(true)" style="text-align: center; font-size: 13px;">📝 AM COMPLETAT / MERGI LA FORMULAR</a>
+        <button class="btn-close-modal" onclick="closeModal(false)">Închide (Voi completa mai târziu)</button>
+      </div>
+    </div>
+
+    <!-- POP-UP CENTRU GDPR -->
+    <div id="gdprcenter-modal" class="modal-overlay">
+      <div class="modal-box" id="gdprcenter-box">
+        <div class="modal-title">🔒 Datele mele</div>
+        <div class="modal-text" style="font-size:12px;">Situația acordurilor înregistrate pentru contul tău.</div>
+        <div id="gdprcenter-body" style="text-align:left; margin-bottom:18px;"></div>
+        <button class="btn-gdpr" onclick="closeGdprCenter()">Închide</button>
+        <button class="btn-close-modal" onclick="retrageAcordul()">Retrage acordul și deconectează-mă</button>
+      </div>
+    </div>
+
+    <!-- POP-UP OFERTE BACK TO SCHOOL -->
+    <div id="offers-modal" class="modal-overlay">
+      <div class="modal-box" id="offers-box" style="max-width: 480px; text-align: left; padding: 25px;">
+         <img src="https://i.postimg.cc/CLfgGb9N/Screenshot-2026-09-01-001408.png" alt="Campania Back to School" style="width: 85%; height: auto; border-radius: 12px; margin: 0 auto 20px auto; display: block; box-shadow: 0 5px 15px rgba(0,0,0,0.15);">
+         <h3 style="color: #c44d2d; margin-top:0; font-weight:900; text-transform:uppercase; font-size:18px;">🎁 CAMPANIA „BACK TO SCHOOL”</h3>
+         <p style="font-size: 13px; font-weight: 700; color: #444; margin-bottom: 20px;">Adu un prieten și amândoi aveți de câștigat!</p>
+
+         <h4 style="font-size: 14px; color: #111; margin-bottom:5px; text-transform:uppercase;">1. Ești deja sportiv la noi?</h4>
+         <p style="font-size: 12px; color: #555; margin-top:0; margin-bottom: 15px; line-height: 1.5;">Dacă aduci un prieten nou care își face abonament lunar, tu primești <strong>următoarea lună 100% GRATUIT</strong> (4 ședințe cadou din partea noastră).</p>
+
+         <h4 style="font-size: 14px; color: #111; margin-bottom:5px; text-transform:uppercase;">2. Veniți amândoi de la zero?</h4>
+         <p style="font-size: 12px; color: #555; margin-top:0; margin-bottom: 15px; line-height: 1.5;">Doi la tenis, plătiți ca unul! Dacă vă înscrieți simultan, plătiți prima lună, iar în a doua lună <strong>amândoi aveți 50% REDUCERE</strong>.</p>
+         
+         <div style="background: #f8f9fa; padding: 10px; border-left: 3px solid #c44d2d; border-radius: 4px; margin-bottom: 15px;">
+             <strong style="font-size: 10px; color: #111; text-transform: uppercase;">*Regulamentul ofertei:</strong>
+             <ul style="font-size: 10px; color: #666; margin: 5px 0 0 0; padding-left: 15px; line-height: 1.4;">
+                 <li>Reducerile/gratuitățile se aplică în luna următoare achitării integrale a abonamentelor.</li>
+                 <li>Campanie valabilă doar pentru grupele de inițiere.</li>
+                 <li>Evaluarea inițială te costă doar drumul până la noi!</li>
+             </ul>
+         </div>
+
+         <a href="https://wa.me/?text=Salut!%20Hai%20cu%20mine%20la%20tenis%20la%20Club%20Masters!%20%F0%9F%8E%BE%20Au%20o%20campanie%20%E2%80%9E1%2B1%E2%80%9D%20%C8%99i%20putem%20c%C3%A2%C8%99tiga%20am%C3%A2ndoi%20antrenamente%20gratis%20sau%20reduceri.%20Ce%20zici%3F" target="_blank" style="display:flex; justify-content:center; align-items:center; background: #25D366; padding: 14px; font-size: 12px; font-weight:900; width: 100%; box-sizing:border-box; color:#fff; border-radius:12px; margin-top:10px; text-decoration:none; text-transform:uppercase; box-shadow: 0 4px 10px rgba(37, 211, 102, 0.3);">📲 INVITĂ UN PRIETEN PE WHATSAPP</a>
+
+         <button onclick="closeOffers()" style="background: #111; padding: 14px; font-size: 12px; width: 100%; color:#ccff00; border-radius:12px; margin-top:10px; border:none; cursor:pointer; font-weight:900;">ÎNCHIDE</button>
+      </div>
+    </div>
+
+    <div class="site-footer">
+      <p>Acreditat și Partener Oficial</p>
+      <div class="partner-logos">
+        <img src="https://i.postimg.cc/zXbRgTm9/download-(2).png" alt="ITF" title="International Tennis Federation">
+        <img src="https://i.postimg.cc/c4g8nfyW/download-(3).png" alt="FRT" title="Federația Română de Tenis">
+        <img src="https://i.postimg.cc/Prp8w1sk/download-(4).png" alt="Play and Stay" title="Play & Stay">
+        <img src="https://i.postimg.cc/J4DBkjVL/download-(5).png" alt="Tenis 10" title="Tenis 10">
+      </div>
+      
+      <div class="social-container">
+          <a href="https://g.page/r/CTKaVRj56wTyEBE/review" target="_blank" class="social-btn">⭐ Google Review</a>
+          <a href="https://www.instagram.com/clubtenismasters?igsh=c2IwaXFxb2psZXNt" target="_blank" class="social-btn">📷 Instagram</a>
+          <a href="https://www.facebook.com/share/1G48eTpXJK/?mibextid=wwXIfr" target="_blank" class="social-btn">📘 Facebook</a>
+      </div>
+
+      <div class="legal-links">
+        &copy; 2026 Club Tenis Masters.<br><br>
+        <a href="https://docs.google.com/forms/d/e/1FAIpQLSc8W-bndjC6SX21BHz8IfUYrXDjhrKZoWsJutR87x2mOc0DtA/viewform?usp=dialog" target="_blank">Politica de Confidențialitate & GDPR</a><br><br>
+        <a href="https://drive.google.com/file/d/1OVLPptgruo4DEVvBv2CbHyYfFJtCy_or/view?usp=sharing" target="_blank" style="text-decoration: underline;">Regulament Club Tennis Masters</a><br><br>
+        <a href="javascript:void(0)" onclick="showGdprCenter()">🔒 Datele mele &amp; acordurile</a>
+      </div>
+    </div>
+    
+    <!-- BUTON PLUTITOR OFERTE -->
+    <button class="fab-offers" onclick="showOffers()">🎁 Oferte</button>
+
+    <script>window.__BOOT__ = <?!= BOOT ?>;</script>
+
+    <script>
+      var textAnuntBaza = "🎾 PLĂȚILE SE FAC PÂNĂ PE DATA DE 10 A FIECĂREI LUNI! VĂ MULȚUMIM! &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ⭐ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 🎁 OFERTĂ 1+1: ADU UN PRIETEN ȘI AI LUNA URMĂTOARE 100% GRATUITĂ! IAR SPORTIVII NOI AU 50% REDUCERE DACĂ SE ÎNSCRIU ÎN ECHIPĂ DE DOI! 🎾 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ⭐ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ";
+      var SETARI = {
+         ANUNT: textAnuntBaza + textAnuntBaza + textAnuntBaza, 
+         TITULAR: "Asociația Clubul Sportiv Tenis Masters", 
+         IBAN: "RO38BRDE441SV00151174410", BANCA: "BRD – Groupe Société Générale", CUI: "16391843",                  
+         TEL_DANIEL: "40726409988", TEL_BIANCA: "40741407410",
+         LINK_PAGINA_CLUB: "https://www.facebook.com/clubtenismasters/",
+         LINKURI_GRUPURI: {
+            "ROSU - MINI TENIS": "https://chat.whatsapp.com/KJOUfB5Crzn8qyVwVRsnFG",
+            "GALBEN": "https://chat.whatsapp.com/BqbpXAmiXyJ6gN1zUqu4Ox",
+            "PORTOCALIU SI VERDE": "https://chat.whatsapp.com/BqbpXAmiXyJ6gN1zUqu4Ox",
+            "PORTOCALIU AVANSAT": "https://chat.whatsapp.com/DBmWpAS6WhtKKUnXtYx3fq"
+         }
+      };
+
+      /* ───────────────────────────────────────────────────────────────────────────
+         STOCARE SIGURĂ
+         În iframe-ul Apps Script, localStorage poate fi BLOCAT (Safari iOS, PWA pe
+         ecranul principal, storage partiționat) și aruncă excepție. Înainte, o
+         singură excepție oprea tot scriptul. Acum nimic nu mai poate arunca, iar
+         valorile au trei niveluri de rezervă.
+         ─────────────────────────────────────────────────────────────────────────── */
+      var Store = (function () {
+        var mem = {};
+        function tryFn(fn, dflt) { try { return fn(); } catch (e) { return dflt; } }
+        function cookieSet(k, v, days) {
+          try {
+            var d = new Date(); d.setTime(d.getTime() + ((days === undefined ? 365 : days) * 86400000));
+            document.cookie = encodeURIComponent(k) + '=' + encodeURIComponent(v) + ';expires=' + d.toUTCString() + ';path=/;SameSite=None;Secure';
+          } catch (e) {}
+        }
+        function cookieGet(k) {
+          try {
+            var m = document.cookie.match('(^|;)\\s*' + encodeURIComponent(k) + '\\s*=\\s*([^;]+)');
+            return m ? decodeURIComponent(m[2]) : null;
+          } catch (e) { return null; }
+        }
+        return {
+          get: function (k) {
+            var v = tryFn(function () { return localStorage.getItem(k); }, null);
+            if (v !== null && v !== undefined) return v;
+            v = tryFn(function () { return sessionStorage.getItem(k); }, null);
+            if (v !== null && v !== undefined) return v;
+            v = cookieGet(k);
+            if (v !== null) return v;
+            return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null;
+          },
+          set: function (k, val) {
+            val = String(val); mem[k] = val;
+            tryFn(function () { localStorage.setItem(k, val); });
+            tryFn(function () { sessionStorage.setItem(k, val); });
+            cookieSet(k, val);
+          },
+          del: function (k) {
+            delete mem[k];
+            tryFn(function () { localStorage.removeItem(k); });
+            tryFn(function () { sessionStorage.removeItem(k); });
+            cookieSet(k, '', -1);
+          }
+        };
+      })();
+
+      /* Escapare HTML — notițele antrenorilor și numele sunt text liber. */
+      function esc(v) {
+        return String(v == null ? '' : v)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      }
+
+      /* ── FAZA 4 — cereri de absență/vacanță ── */
+
+      /* Împachetează o valoare pentru un atribut onclick construit prin concatenare. */
+      function attr(v) {
+        return "'" + String(v == null ? '' : v)
+          .replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;')
+          .replace(/</g, '&lt;').replace(/\r?\n/g, ' ') + "'";
+      }
+
+      /* Eticheta unei cereri deja trimise — înlocuiește butonul, în același loc. */
+      function statusCerere(c, extraStyle, titlu) {
+        var eligibil = !!c.eligibil;
+        var bg  = eligibil ? '#e8f5e9' : '#fff3e0';
+        var bd  = eligibil ? '#c8e6c9' : '#ffe0b2';
+        var fg  = eligibil ? '#2e7d32' : '#e65100';
+        var cap = titlu ? ('<strong>' + esc(titlu) + '</strong><br>') : '';
+        return '<div style="' + (extraStyle || '') + ' padding:10px; background:' + bg + '; border:1px solid ' + bd +
+               '; border-radius:8px; font-size:11px; font-weight:800; color:' + fg + ';">' + cap +
+               '✅ Anunțat · ' + esc(c.status) +
+               '<br><span style="font-weight:600; color:#666;">' +
+               (eligibil ? 'Eligibil pentru recuperare.' : 'Neeligibil pentru recuperare (anunțat târziu).') +
+               ' Confirmarea o face antrenorul.</span></div>';
+      }
+
+      /* Deschide WhatsApp (ca până acum) ȘI înregistrează cererea în foaia clubului. */
+      function trimiteCerere(el, sportiv, tip, dataVizata) {
+        if (!SESSION.token) return true;              // fără sesiune, se comportă exact ca înainte
+        if (el.getAttribute('data-trimis') === '1') return true;
+        el.setAttribute('data-trimis', '1');
+
+        google.script.run
+          .withSuccessHandler(function (r) {
+            if (r && r.success) {
+              var d = document.createElement('div');
+              d.innerHTML = statusCerere(r.cerere, 'margin-bottom:8px;', dataVizata);
+              if (el.parentNode) el.parentNode.replaceChild(d.firstChild, el);
+              Store.del('mastersCache');               // cache-ul local nu mai e la zi
+            } else {
+              el.removeAttribute('data-trimis');
+            }
+          })
+          .withFailureHandler(function () { el.removeAttribute('data-trimis'); })
+          .portalCerere(SESSION.token, sportiv, tip, dataVizata, '');
+
+        return true;                                   // linkul WhatsApp se deschide normal
+      }
+
+      /* ── FAZA 4 — Centrul GDPR ── */
+      function showGdprCenter() {
+        var modal = document.getElementById('gdprcenter-modal'), box = document.getElementById('gdprcenter-box');
+        var body = document.getElementById('gdprcenter-body');
+        body.innerHTML = '<p style="font-size:12px; color:#888;">Se încarcă…</p>';
+        modal.style.display = 'flex';
+        setTimeout(function(){ modal.style.opacity = '1'; box.style.transform = 'scale(1)'; }, 100);
+
+        if (!SESSION.token) {
+          body.innerHTML = '<p style="font-size:13px; color:#666;">Autentifică-te pentru a vedea acordurile înregistrate.</p>';
+          return;
+        }
+        google.script.run.withSuccessHandler(function (r) {
+          if (!r || r.error) { body.innerHTML = '<p style="font-size:13px; color:#d32f2f;">Nu am putut încărca datele.</p>'; return; }
+          var L = function (k, v) {
+            return '<div style="display:flex; justify-content:space-between; gap:10px; padding:8px 0; border-bottom:1px solid #f1f3f4; font-size:12px;">' +
+                   '<span style="color:#666; font-weight:600;">' + k + '</span>' +
+                   '<span style="color:#111; font-weight:800; text-align:right;">' + v + '</span></div>';
+          };
+          body.innerHTML =
+            L('Cont (telefon)', esc(r.telefon)) +
+            L('Formular GDPR completat', r.inFormular ? ('✅ Da' + (r.dataFormular ? ' · ' + esc(r.dataFormular) : '')) : '❌ Nu') +
+            L('Confirmat în portal', r.confirmatInPortal ? ('✅ ' + esc(r.confirmatInPortal)) : '—') +
+            L('Versiune acord', esc(r.versiune || '—') + ' / ' + esc(r.versiuneCurenta)) +
+            L('Dispozitive conectate', String(r.dispozitiveActive));
+        }).withFailureHandler(function () {
+          body.innerHTML = '<p style="font-size:13px; color:#d32f2f;">Eroare de conexiune.</p>';
+        }).portalGdprInfo(SESSION.token);
+      }
+
+      function closeGdprCenter() {
+        var modal = document.getElementById('gdprcenter-modal'), box = document.getElementById('gdprcenter-box');
+        modal.style.opacity = '0'; box.style.transform = 'scale(0.8)';
+        setTimeout(function(){ modal.style.display = 'none'; }, 400);
+      }
+
+      function retrageAcordul() {
+        if (!SESSION.token) return;
+        if (!confirm('Retragerea acordului te deconectează de pe toate dispozitivele și transmite clubului solicitarea ta.\n\nContinui?')) return;
+        google.script.run.withSuccessHandler(function () {
+          Store.del('mastersToken'); Store.del('mastersCache');
+          SESSION.token = '';
+          closeGdprCenter();
+          document.getElementById('athletes-container').innerHTML = '';
+          backToLogin();
+          showLoginError('Solicitarea a fost transmisă. Clubul te va contacta.');
+        }).portalGdprRetrage(SESSION.token);
+      }
+
+      /* Starea sesiunii: sursa de adevăr este serverul, nu browserul. */
+      var BOOT = (window.__BOOT__ || {});
+      var SESSION = { token: '', gdprOk: false, appUrl: '', installUrl: '' };
+
+      function initTheme() {
+        var savedTheme = Store.get('mastersTheme'), btn = document.getElementById('themeBtn');
+        if (savedTheme === 'dark') { document.body.classList.add('dark-mode'); btn.innerText = '☀️'; } 
+        else if (savedTheme === 'light') { document.body.classList.remove('dark-mode'); btn.innerText = '🌙'; } 
+        else { if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) { document.body.classList.add('dark-mode'); btn.innerText = '☀️'; } }
+      }
+      initTheme();
+
+      function toggleTheme() {
+        var isDark = document.body.classList.toggle('dark-mode'), btn = document.getElementById('themeBtn');
+        if (isDark) { btn.innerText = '☀️'; Store.set('mastersTheme', 'dark'); } else { btn.innerText = '🌙'; Store.set('mastersTheme', 'light'); }
+      }
+
+      function initPWA() {
+        var isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone || document.referrer.includes('android-app://');
+        if (isStandalone) return; 
+
+        var pwaDismissed = Store.get('mastersPwaDismissed');
+        if (pwaDismissed) return;
+
+        // Linkul personal duce fereastra principală la /exec?t=<token>.
+        // Scurtătura salvată pe ecranul principal păstrează tokenul => rămâne conectat.
+        var personal = document.getElementById('pwa-personal-link');
+        if (personal) {
+          if (SESSION.installUrl) { personal.href = SESSION.installUrl; personal.style.display = 'block'; }
+          else { personal.style.display = 'none'; }
+        }
+
+        var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        var isAndroid = /android/i.test(navigator.userAgent);
+
+        if (isIOS || isAndroid) {
+          var modal = document.getElementById('pwa-modal');
+          modal.style.display = 'flex';
+          setTimeout(function(){ modal.style.opacity = '1'; }, 100);
+          if (isIOS) document.getElementById('ios-instruct').style.display = 'block';
+          if (isAndroid) document.getElementById('android-instruct').style.display = 'block';
+        }
+      }
+
+      function closePwaModal() {
+        var modal = document.getElementById('pwa-modal');
+        modal.style.opacity = '0';
+        setTimeout(function(){ modal.style.display = 'none'; }, 400);
+      }
+
+      function dismissPwaModal() {
+        Store.set('mastersPwaDismissed', 'true');
+        closePwaModal();
+      }
+
+      /* ── Ecranele de stare (skeleton-ul rămâne, dar devine tranziție reală) ── */
+      function showSkeleton() {
+        document.getElementById('loader').style.display = 'block';
+        document.getElementById('syncText').style.display = 'block';
+        document.getElementById('dashboard-view').style.display = 'none';
+        document.getElementById('skeleton-view').style.display = 'block';
+      }
+      function backToLogin() {
+        document.getElementById('skeleton-view').style.display = 'none';
+        document.getElementById('loader').style.display = 'none';
+        document.getElementById('syncText').style.display = 'none';
+        document.getElementById('dashboard-view').style.display = 'none';
+        document.getElementById('login-view').style.display = 'block';
+      }
+      function showLoginError(msg) {
+        var el = document.getElementById('errorMsg');
+        el.innerText = msg; el.style.display = 'block';
+      }
+      function afterAuth() {
+        setTimeout(function () {
+          initPWA();
+          setTimeout(showGdprModal, 1500);
+        }, 800);
+      }
+
+      /* ── Reîmprospătare pe bază de token ── */
+      function hasDashboard() {
+        var c = document.getElementById('athletes-container');
+        return !!(c && c.innerHTML && c.innerHTML.length > 0);
+      }
+      /* Eșec de rețea la reîmprospătare: datele din cache rămân afișate. */
+      function onRefreshFail() {
+        document.getElementById('skeleton-view').style.display = 'none';
+        document.getElementById('loader').style.display = 'none';
+        document.getElementById('syncText').style.display = 'none';
+        if (!hasDashboard()) { backToLogin(); showLoginError('Eroare de conexiune la server. Încercați din nou.'); }
+      }
+
+      function onRefresh(res) {
+        if (!res || res.error) {
+          if (res && res.error === 'SESIUNE_EXPIRATA') {
+            Store.del('mastersToken'); Store.del('mastersCache');
+            SESSION.token = '';
+            backToLogin();
+            showLoginError('Sesiunea a expirat. Autentificați-vă din nou.');
+            return;
+          }
+          // Eroare temporară: dacă avem deja date pe ecran, le păstrăm — nu întrerupem părintele.
+          document.getElementById('skeleton-view').style.display = 'none';
+          document.getElementById('loader').style.display = 'none';
+          document.getElementById('syncText').style.display = 'none';
+          if (!hasDashboard()) { backToLogin(); showLoginError((res && res.error) || 'Conexiune indisponibilă.'); }
+          return;
+        }
+        SESSION.gdprOk = !!res.gdprOk;
+        SESSION.appUrl = res.appUrl || '';
+        SESSION.installUrl = res.installUrl || '';
+        if (res.anunt) aplicaAnunt(res.anunt);
+        Store.set('mastersCache', JSON.stringify(res.data));
+        renderDashboard(res.data, false);
+        afterAuth();
+      }
+
+      /* ── Restaurarea sesiunii: token din URL (injectat de server) sau din memoria locală ── */
+      function initSession() {
+        if (BOOT && BOOT.token) {
+          SESSION.token = BOOT.token;
+          SESSION.gdprOk = !!BOOT.gdprOk;
+          SESSION.appUrl = BOOT.appUrl || '';
+          SESSION.installUrl = BOOT.installUrl || '';
+          Store.set('mastersToken', BOOT.token);
+          document.getElementById('login-view').style.display = 'none';
+          if (BOOT.data && BOOT.data.length) {
+            // Datele au venit odată cu pagina: zero apeluri, zero așteptare.
+            Store.set('mastersCache', JSON.stringify(BOOT.data));
+            renderDashboard(BOOT.data, false);
+            afterAuth();
+          } else {
+            showSkeleton();
+            google.script.run.withSuccessHandler(onRefresh).withFailureHandler(onRefreshFail).portalRefresh(BOOT.token);
+          }
+          return true;
+        }
+
+        var t = Store.get('mastersToken');
+        if (t) {
+          SESSION.token = t;
+          document.getElementById('login-view').style.display = 'none';
+          var cached = Store.get('mastersCache'), rendered = false;
+          if (cached) {
+            try { renderDashboard(JSON.parse(cached), true); rendered = true; } catch (e) {}
+          }
+          if (!rendered) showSkeleton();
+          google.script.run.withSuccessHandler(onRefresh).withFailureHandler(onRefreshFail).portalRefresh(t);
+          return true;
+        }
+        return false;
+      }
+
+      /* Anunțul vine din foaia ANUNȚURI; dacă e gol, rămâne textul implicit din SETARI. */
+      function aplicaAnunt(txt) {
+        try { document.getElementById('marquee-text').innerHTML = (txt && txt.length) ? txt : SETARI.ANUNT; } catch (e) {}
+      }
+
+      function boot() {
+        aplicaAnunt(BOOT && BOOT.anunt);
+
+        var sp = Store.get('mastersSavedPhone'), sn = Store.get('mastersSavedName');
+        if (sp) document.getElementById('phoneInput').value = sp;
+        if (sn) document.getElementById('prenumeInput').value = sn;
+
+        if (initSession()) return;
+
+        // Fără token, dar cu datele memorate: autentificare automată (ca înainte).
+        if (sp && sn) { login(); return; }
+
+        // Vizitator nou: doar invitația de instalare.
+        // Acordul GDPR se cere DUPĂ autentificare, fiindcă este legat de un părinte anume.
+        setTimeout(initPWA, 1200);
+      }
+
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+      else boot();
+
+      function formatPhone(input) {
+        var val = input.value.replace(/\D/g, ''), formatted = '';
+        if (val.length > 0) formatted += val.substring(0, 4);
+        if (val.length > 4) formatted += ' ' + val.substring(4, 7);
+        if (val.length > 7) formatted += ' ' + val.substring(7, 10);
+        input.value = formatted;
+      }
+      function handleEnter(e) { if (e.keyCode === 13) login(); }
+
+      function showGdprModal() {
+        if (!SESSION.token) return;          // se cere doar părinților autentificați
+        if (SESSION.gdprOk) return;          // starea vine de la SERVER, nu din browser
+        var pwa = document.getElementById('pwa-modal');
+        if (pwa && pwa.style.display === 'flex') { setTimeout(showGdprModal, 2500); return; }  // reîncearcă, nu renunță
+        var modal = document.getElementById('gdpr-modal'), box = document.getElementById('gdpr-box');
+        modal.style.display = 'flex';
+        setTimeout(function(){ modal.style.opacity = '1'; box.style.transform = 'scale(1)'; }, 100);
+      }
+      function closeModal(markCompleted) {
+        var modal = document.getElementById('gdpr-modal'), box = document.getElementById('gdpr-box');
+        if (markCompleted) {
+          SESSION.gdprOk = true;
+          // Acordul se înregistrează pe server (versiune + dată) => dovadă verificabilă,
+          // și nu se mai pierde niciodată odată cu memoria browserului.
+          if (SESSION.token) { try { google.script.run.portalAcceptGdpr(SESSION.token); } catch (e) {} }
+        }
+        modal.style.opacity = '0'; box.style.transform = 'scale(0.8)';
+        setTimeout(function(){ modal.style.display = 'none'; }, 400);
+      }
+      
+      function showOffers() { var modal = document.getElementById('offers-modal'), box = document.getElementById('offers-box'); modal.style.display = 'flex'; setTimeout(function(){ modal.style.opacity = '1'; box.style.transform = 'scale(1)'; }, 100); }
+      function closeOffers() { var modal = document.getElementById('offers-modal'), box = document.getElementById('offers-box'); modal.style.opacity = '0'; box.style.transform = 'scale(0.8)'; setTimeout(function(){ modal.style.display = 'none'; }, 400); }
+
+      function generateCalendarLink(program, nume) {
+          var prog = String(program || '').toUpperCase(), days = [];
+          if (prog.indexOf('L-V') > -1) { days = ['MO','TU','WE','TH','FR']; } else if (prog.indexOf('L-J') > -1) { days = ['MO','TU','WE','TH']; } else {
+              if (prog.indexOf('LUNI') > -1 || /\bL\b/.test(prog) || prog.indexOf('L/') > -1) days.push('MO');
+              if (prog.indexOf('MARTI') > -1 || /\bMA\b/.test(prog) || prog.indexOf('MA/') > -1) days.push('TU');
+              if (prog.indexOf('MIERCURI') > -1 || /\bMI\b/.test(prog) || prog.indexOf('MIE') > -1 || prog.indexOf('MI/') > -1) days.push('WE');
+              if (prog.indexOf('JOI') > -1 || /\bJ\b/.test(prog) || prog.indexOf('J/') > -1) days.push('TH');
+              if (prog.indexOf('VINERI') > -1 || /\bV\b/.test(prog) || prog.indexOf('V/') > -1) days.push('FR');
+              if (prog.indexOf('SAMBATA') > -1 || /\bS\b/.test(prog)) days.push('SA');
+              if (prog.indexOf('DUMINICA') > -1 || /\bD\b/.test(prog)) days.push('SU');
+          }
+          if(days.length === 0) days = ['MO','TU','WE','TH','FR']; 
+          var startHour = "180000", endHour = "200000";
+          var timeMatch = prog.match(/(\d{1,2})(?::(\d{2}))?\s*[-–]\s*(\d{1,2})(?::(\d{2}))?/);
+          if (timeMatch) {
+              var h1 = (timeMatch[1].length === 1 ? '0' : '') + timeMatch[1], m1 = timeMatch[2] || '00', h2 = (timeMatch[3].length === 1 ? '0' : '') + timeMatch[3], m2 = timeMatch[4] || '00';
+              startHour = h1 + m1 + "00"; endHour = h2 + m2 + "00";
+          }
+          var d = new Date(), yyyy = d.getFullYear(), mm = (d.getMonth() + 1 < 10 ? '0' : '') + (d.getMonth() + 1), dd = (d.getDate() < 10 ? '0' : '') + d.getDate();
+          var dateStr = yyyy + mm + dd, title = encodeURIComponent("🎾 Tenis - " + nume), details = encodeURIComponent("Antrenament de tenis la Club Masters."), loc = encodeURIComponent("Club Tenis Masters, Strada Gheorghe Petrașcu 43-45, 031592 București, România"), dates = dateStr + "T" + startHour + "/" + dateStr + "T" + endHour, rrule = "RRULE:FREQ=WEEKLY;BYDAY=" + days.join(',');
+          return "https://calendar.google.com/calendar/render?action=TEMPLATE&text=" + title + "&dates=" + dates + "&recur=" + rrule + "&details=" + details + "&location=" + loc;
+      }
+
+      function togglePayment(btn) { var details = btn.nextElementSibling; if (details.style.display === "none") { details.style.display = "block"; btn.innerText = "ASCUNDE DETALII"; } else { details.style.display = "none"; btn.innerText = "💳 VEZI DETALII PLATĂ"; } }
+      function toggleArchive(btn) { var content = btn.nextElementSibling, arrow = btn.querySelector('.arrow'); if (content.style.display === "none") { content.style.display = "block"; arrow.innerText = "▲"; btn.style.borderRadius = "10px 10px 0 0"; btn.style.marginBottom = "0"; } else { content.style.display = "none"; arrow.innerText = "▼"; btn.style.borderRadius = "10px"; btn.style.marginBottom = "5px"; } }
+      function toggleAbsence(btn) { var content = btn.nextElementSibling, arrow = btn.querySelector('.arrow'); if (content.style.display === "none") { content.style.display = "block"; arrow.innerText = "▲"; btn.style.borderRadius = "10px 10px 0 0"; btn.style.marginBottom = "0"; } else { content.style.display = "none"; arrow.innerText = "▼"; btn.style.borderRadius = "10px"; btn.style.marginBottom = "5px"; } }
+
+      function login() {
+        var phone   = document.getElementById('phoneInput').value;
+        var prenume = document.getElementById('prenumeInput').value;
+        document.getElementById('errorMsg').style.display = 'none';
+
+        if (!phone)   { showLoginError('Introduceți numărul de telefon.'); return; }
+        if (!prenume) { showLoginError('Introduceți prenumele sportivului.'); return; }
+
+        var remember = document.getElementById('rememberMe').checked;
+        if (remember) { Store.set('mastersSavedPhone', phone); Store.set('mastersSavedName', prenume); }
+        else { Store.del('mastersSavedPhone'); Store.del('mastersSavedName'); }
+
+        document.getElementById('login-view').style.display = 'none';
+        showSkeleton();
+
+        // UN SINGUR apel: autentificare + token + date complete.
+        google.script.run.withSuccessHandler(function(response) {
+            if (!response || response.error) {
+                backToLogin();
+                showLoginError((response && response.error) || 'Eroare necunoscută.');
+                return;
+            }
+            SESSION.token      = response.token;
+            SESSION.gdprOk     = !!response.gdprOk;
+            SESSION.appUrl     = response.appUrl || '';
+            SESSION.installUrl = response.installUrl || '';
+            if (response.anunt) aplicaAnunt(response.anunt);
+            if (remember) Store.set('mastersToken', response.token);
+            Store.set('mastersCache', JSON.stringify(response.data));
+            renderDashboard(response.data, false);
+            afterAuth();
+        }).withFailureHandler(showError).portalLogin(phone, prenume, (navigator.userAgent || ''));
+      }
+
+      function renderDashboard(dataArray, isCached) {
+        document.getElementById('loader').style.display = 'none';
+        document.getElementById('syncText').style.display = 'none';
+        document.getElementById('skeleton-view').style.display = 'none';
+        
+        var html = ''; 
+        var hasChampion = false; 
+
+        if (isCached) {
+            html += '<div class="sync-indicator">🔄 Se sincronizează noile date...</div>';
+        }
+        
+        dataArray.forEach(function(ath) {
+          var arhiveHtml = '';
+          if (ath.arhive && ath.arhive.length > 0) {
+              arhiveHtml += '<button class="archive-btn" onclick="toggleArchive(this)" style="background:#f1f3f4; color:#111; box-shadow:none; padding:15px; font-size:11px; border:1px solid #e0e5eb; border-radius:10px; display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">';
+              arhiveHtml += '<span>📅 ARHIVA PREZENȚELOR</span><span class="arrow">▼</span></button>';
+              arhiveHtml += '<div class="archive-content" style="display:none; background:#fff; border:1px solid #e0e5eb; border-top:none; border-radius:0 0 10px 10px; padding:15px; margin-top:-5px; margin-bottom: 15px; box-shadow:inset 0 2px 5px rgba(0,0,0,0.02);">';
+              
+              ath.arhive.forEach(function(arh) {
+                  arhiveHtml += '<div style="font-size:12px; font-weight:900; color:#111; margin: 15px 0 5px 0; border-bottom: 2px solid #f1f3f4; padding-bottom:5px;">' + esc(arh.lunaNume).toUpperCase() + '</div>';
+                  if (arh.istoric && arh.istoric.length > 0) {
+                      arh.istoric.forEach(function(zi) {
+                          var dParts = zi.displayDate.split(' ');
+                          var ziZi = dParts[0] || '';
+                          var ziLuna = (dParts[1] || '').substring(0,3);
+
+                          arhiveHtml += '<div class="archive-item" style="display: flex; align-items: center; padding: 12px 0; border-bottom: 1px dashed #e0e5eb;">';
+                          arhiveHtml += '<div class="cal-block">';
+                          arhiveHtml += '<span class="cal-day">' + ziZi + '</span>';
+                          arhiveHtml += '<span class="cal-month">' + ziLuna + '</span>';
+                          arhiveHtml += '</div>';
+
+                          arhiveHtml += '<div style="flex: 1; text-align: left;">';
+                          arhiveHtml += '<span class="archive-pill" style="border-color: ' + zi.culoare + '; color: ' + zi.culoare + ';">' + esc(zi.status) + '</span>';
+                          
+                          if (zi.eligibil) {
+                              var isNeeligibil = zi.eligibil.indexOf('Neeligibil') > -1;
+                              var culEligibil = isNeeligibil ? '#d32f2f' : '#F7941E';
+                              var iconEligibil = isNeeligibil ? '❌' : '✅';
+                              arhiveHtml += '<div style="font-size:10px; color:#666; margin-top:6px; font-weight:600; display:flex; align-items:center; gap:4px;"><span>' + iconEligibil + '</span> <span style="color:' + culEligibil + ';">' + esc(zi.eligibil) + '</span></div>';
+                          }
+                          arhiveHtml += '</div></div>';
+                      });
+                  } else { arhiveHtml += '<p style="font-size:11px; color:#888; margin:5px 0;">Nu există date pentru această lună.</p>'; }
+              });
+              arhiveHtml += '</div>';
+              
+              arhiveHtml += '<button class="archive-btn" onclick="toggleArchive(this)" style="background:#f1f3f4; color:#111; box-shadow:none; padding:15px; font-size:11px; border:1px solid #e0e5eb; border-radius:10px; display:flex; justify-content:space-between; align-items:center; margin-bottom:5px; margin-top:10px;">';
+              arhiveHtml += '<span>💳 EVIDENȚA PLĂȚILOR</span><span class="arrow">▼</span></button>';
+              arhiveHtml += '<div class="archive-content" style="display:none; background:#fff; border:1px solid #e0e5eb; border-top:none; border-radius:0 0 10px 10px; padding:15px; margin-top:-5px; margin-bottom: 15px; box-shadow:inset 0 2px 5px rgba(0,0,0,0.02);">';
+              ath.arhive.forEach(function(arh) {
+                  arhiveHtml += '<div style="font-size:12px; font-weight:900; color:#111; margin: 15px 0 5px 0; border-bottom: 2px solid #f1f3f4; padding-bottom:5px;">' + esc(arh.lunaNume).toUpperCase() + '</div>';
+                  var pInfo = arh.plataInfo;
+                  if (pInfo) {
+                      if (pInfo.status === 'Achitat') {
+                          arhiveHtml += '<div style="font-size: 11px; color: #444; line-height: 1.6;">';
+                          arhiveHtml += 'Status: <strong style="color:#0B6B2E;">ACHITAT ✅</strong><br>';
+                          if (pInfo.data) arhiveHtml += 'Data încasării: <strong>' + pInfo.data + '</strong><br>';
+                          if (pInfo.metoda) arhiveHtml += 'Metodă plată: <strong>' + pInfo.metoda + '</strong><br>';
+                          if (pInfo.tarif) arhiveHtml += 'Tarif achitat: <strong>' + pInfo.tarif + ' LEI</strong><br>';
+                          arhiveHtml += '</div>';
+                      } else {
+                          arhiveHtml += '<div style="font-size: 11px; color: #444; line-height: 1.6;">';
+                          arhiveHtml += 'Status: <strong style="color:#d32f2f;">NEACHITAT ⚠️</strong><br>';
+                          if (pInfo.tarif) arhiveHtml += 'Tarif de achitat: <strong>' + pInfo.tarif + ' LEI</strong><br>';
+                          arhiveHtml += '</div>';
+                      }
+                  } else { arhiveHtml += '<p style="font-size:11px; color:#888; margin:5px 0;">Nu există date financiare.</p>'; }
+              });
+              arhiveHtml += '</div>';
+          }
+          
+          var telefonWhatsApp = SETARI.TEL_DANIEL;
+          if (String(ath.antrenor).toUpperCase().indexOf('BIANCA') > -1) telefonWhatsApp = SETARI.TEL_BIANCA;
+
+          // Cererile deja trimise pentru acest sportiv, indexate după data vizată.
+          var cereriPeZi = {};
+          (ath.cereri || []).forEach(function(c) { cereriPeZi[c.tip + '|' + c.data] = c; });
+
+          var absenceHtml = '';
+          if (!ath.inactiv) {
+              absenceHtml += '<button onclick="toggleAbsence(this)" style="background:#fff; color:#d32f2f; box-shadow:none; padding:15px; font-size:11px; border:2px solid #ffcdd2; border-radius:10px; display:flex; justify-content:space-between; align-items:center; margin-bottom:5px; margin-top:20px;">';
+              absenceHtml += '<span style="font-weight:900;">📢 ANUNȚĂ O ABSENȚĂ SAU VACANȚĂ</span><span class="arrow">▼</span></button>';
+              absenceHtml += '<div style="display:none; background:#fff; border:2px solid #ffcdd2; border-top:none; border-radius:0 0 10px 10px; padding:15px; margin-top:-5px; margin-bottom: 15px;">';
+              
+              var viitoare = (ath.istoricCurent || []).filter(function(z) { return z.cod === 'FUTURE'; });
+              var nowD = new Date();
+              var aziD = new Date(nowD.getFullYear(), nowD.getMonth(), nowD.getDate());
+
+              var currentWeekDays = [];
+              var futureWeekDays = [];
+              
+              viitoare.forEach(function(zi) {
+                  var trainD = new Date(zi.timestamp); 
+                  var tD = new Date(trainD.getFullYear(), trainD.getMonth(), trainD.getDate());
+                  var diffD = Math.round((tD - aziD) / (1000 * 60 * 60 * 24));
+                  if (diffD < 7) { currentWeekDays.push(zi.displayDate); } else { futureWeekDays.push(zi.displayDate); }
+              });
+
+              absenceHtml += '<div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px dashed #ffcdd2;">';
+              absenceHtml += '<strong style="font-size:11px; color:#111; display:block; margin-bottom:10px;">✈️ Anunță Vacanța:</strong>';
+              
+              if (currentWeekDays.length > 0) {
+                  var intervalCurent = currentWeekDays[0] + (currentWeekDays.length > 1 ? ' - ' + currentWeekDays[currentWeekDays.length - 1] : '');
+                  absenceHtml += '<div style="background:#fff3e0; padding:10px; border-radius:8px; margin-bottom:8px; border:1px solid #ffe0b2;">';
+                  absenceHtml += '<span style="font-size:10px; color:#e65100; font-weight:800;">Săptămâna în curs (' + intervalCurent + '):</span><br>';
+                  absenceHtml += '<span style="font-size:10px; color:#666;">❌ Nu este eligibil pentru vacanță. Nu se pot scădea de la plată (anunțat cu mai puțin de 7 zile).</span></div>';
+              }
+              
+              if (futureWeekDays.length > 0) {
+                  var intervalViitor = futureWeekDays[0] + (futureWeekDays.length > 1 ? ' - ' + futureWeekDays[futureWeekDays.length - 1] : '');
+                  absenceHtml += '<div style="background:#e8f5e9; padding:10px; border-radius:8px; margin-bottom:8px; border:1px solid #c8e6c9;">';
+                  absenceHtml += '<span style="font-size:10px; color:#2e7d32; font-weight:800;">Săptămânile viitoare (' + intervalViitor + '):</span><br>';
+                  absenceHtml += '<span style="font-size:10px; color:#666;">✅ Eligibil pentru vacanță. Se deduce din abonament conform regulamentului.</span></div>';
+              }
+
+              if (viitoare.length === 0) {
+                   absenceHtml += '<p style="font-size:10px; color:#888;">Nu sunt antrenamente programate pentru a anunța vacanța.</p>';
+              } else {
+                   var primaZiVac = futureWeekDays.length ? futureWeekDays[0] : viitoare[0].displayDate;
+                   var cerVac = cereriPeZi['VACANTA|' + primaZiVac];
+                   if (cerVac) {
+                       absenceHtml += statusCerere(cerVac, 'margin-top:10px;');
+                   } else {
+                       var msgVacanta = encodeURIComponent("Salut! Vreau să anunț vacanță pentru " + ath.nume + " conform regulamentului (la începutul lunii sau cu min. 7 zile înainte).");
+                       absenceHtml += '<a href="https://wa.me/' + telefonWhatsApp + '?text=' + msgVacanta + '" target="_blank"' +
+                           ' onclick="trimiteCerere(this, ' + attr(ath.nume) + ', \'VACANTA\', ' + attr(primaZiVac) + ')"' +
+                           ' style="display:block; padding:10px; background:#e3f2fd; color:#0d47a1; border:1px solid #bbdefb; border-radius:8px; font-size:11px; text-decoration:none; font-weight:800; text-align:center; margin-top:10px;">✈️ Trimite Notificare Vacanță pe WhatsApp</a>';
+                   }
+              }
+              absenceHtml += '</div>';
+
+              absenceHtml += '<strong style="font-size:11px; color:#111; display:block; margin-bottom:5px;">📅 Anunță Absență Ședință:</strong>';
+              absenceHtml += '<p style="font-size:10px; color:#666; margin-top:0; margin-bottom:10px;">*Minim 24h înainte pentru eligibilitate recuperare.</p>';
+
+              if(viitoare.length > 0) {
+                  viitoare.slice(0, 3).forEach(function(zi) {
+                     var trainD = new Date(zi.timestamp); 
+                     var tD = new Date(trainD.getFullYear(), trainD.getMonth(), trainD.getDate());
+                     var diffD = Math.round((tD - aziD) / (1000 * 60 * 60 * 24));
+
+                     var cerZi = cereriPeZi['ABSENTA|' + zi.displayDate];
+                     if (cerZi) {
+                         absenceHtml += statusCerere(cerZi, 'margin-bottom:8px;', zi.displayDate);
+                     } else if(diffD === 0) {
+                         absenceHtml += '<div style="margin-bottom:8px; padding:10px; background:#f8f9fa; border-radius:8px; font-size:11px; color:#888; border:1px solid #eee;"><strong>' + esc(zi.displayDate) + '</strong><br>Nu se poate anunța în aceeași zi.</div>';
+                     } else if (diffD === 1) {
+                         var msg = encodeURIComponent("Salut! " + ath.nume + " nu va putea ajunge la antrenamentul de mâine, " + zi.displayDate + ". Am anunțat sub 24h, neeligibil pentru recuperare.");
+                         absenceHtml += '<a href="https://wa.me/' + telefonWhatsApp + '?text=' + msg + '" target="_blank"' +
+                             ' onclick="trimiteCerere(this, ' + attr(ath.nume) + ', \'ABSENTA\', ' + attr(zi.displayDate) + ')"' +
+                             ' style="display:block; margin-bottom:8px; padding:10px; background:#fff3e0; color:#e65100; border:1px solid #ffe0b2; border-radius:8px; font-size:11px; text-decoration:none; font-weight:800;"><strong>' + esc(zi.displayDate) + '</strong><br>↳ Anunță pe WA (Sub 24h)</a>';
+                     } else {
+                         var msg = encodeURIComponent("Salut! " + ath.nume + " nu va putea ajunge la antrenamentul din data de " + zi.displayDate + ". Am anunțat cu peste 24h înainte, eligibil pentru recuperare.");
+                         absenceHtml += '<a href="https://wa.me/' + telefonWhatsApp + '?text=' + msg + '" target="_blank"' +
+                             ' onclick="trimiteCerere(this, ' + attr(ath.nume) + ', \'ABSENTA\', ' + attr(zi.displayDate) + ')"' +
+                             ' style="display:block; margin-bottom:8px; padding:10px; background:#e8f5e9; color:#2e7d32; border:1px solid #c8e6c9; border-radius:8px; font-size:11px; text-decoration:none; font-weight:800;"><strong>' + esc(zi.displayDate) + '</strong><br>↳ Anunță pe WA (Peste 24h)</a>';
+                     }
+                  });
+              } else {
+                  absenceHtml += '<p style="font-size:11px; color:#888;">Nu există antrenamente viitoare înregistrate în această lună.</p>';
+              }
+              absenceHtml += '</div>';
+          }
+
+          if (ath.inactiv) {
+              html += '<div class="card" style="border-left-color: #9AA0A6;">';
+              html += '<h3 class="card-title" style="color: #111;">' + esc(ath.nume) + '</h3>';
+              html += '<p class="card-subtitle" style="color:#00AEEF;">GRUPA: ' + esc(ath.grupa) + '</p>';
+              html += '<p class="card-subtitle">Antrenor: ' + esc(ath.antrenor) + ' | Luna: ' + esc(ath.luna) + '</p>';
+              html += '<div style="background:#f8f9fa; padding: 25px 20px; border-radius: 12px; margin-top: 15px; text-align: center; border: 1px dashed #ccc;">';
+              html += '<h2 style="color:#9AA0A6; font-weight:900; margin:0 0 10px 0; font-size:20px; letter-spacing: 2px;">INACTIV</h2>';
+              html += '<p style="color:#666; font-size:12px; font-weight:800; margin:0;">Te așteptăm înapoi la cursuri! 🎾</p></div>';
+              html += '<div style="margin: 20px 0;">' + arhiveHtml + '</div></div>';
+          } else {
+              html += '<div class="card">';
+              if (ath.procent === 100 && ath.prezente >= ath.sedinteTarget && ath.sedinteTarget > 0) {
+                  hasChampion = true; html += '<div class="badge-100">🏆 JUCĂTORUL LUNII - 100% PREZENȚĂ!</div>';
+              }
+              html += '<h3 class="card-title">' + esc(ath.nume) + '</h3>';
+              html += '<p class="card-subtitle" style="color:#00AEEF;">GRUPA: ' + esc(ath.grupa) + '</p>';
+              html += '<p class="card-subtitle" style="color:#111;">Antrenor: ' + esc(ath.antrenor) + ' <span style="color:#888;">| Luna: ' + esc(ath.luna) + '</span></p>';
+              
+              if (ath.programFix) { html += '<p class="card-subtitle" style="color: #111;">🕒 PROGRAM FIX: <span style="font-weight:900; color:#00AEEF;">' + esc(ath.programFix) + '</span></p>'; } 
+              else if (ath.program) { html += '<p class="card-subtitle" style="color: #666;">🕒 PROGRAM: <span style="color:#111;">' + esc(ath.program) + '</span></p>'; } 
+
+              // Portofel de recuperări — aceeași clasă ca liniile de deasupra, fără CSS nou.
+              var pf = ath.recuperari_portofel;
+              if (pf && pf.disponibile > 0) {
+                html += '<p class="card-subtitle" style="color: #111;">🪃 RECUPERĂRI DISPONIBILE: <span style="font-weight:900; color:#F7941E;">' + pf.disponibile + '</span>' +
+                        (pf.expira ? ' <span style="color:#888; font-weight:600;">· prima expiră ' + esc(pf.expira) + '</span>' : '') + '</p>';
+              }
+
+              if (ath.infoInterne && ath.infoInterne.trim() !== '') {
+                  html += '<div style="background:#fff9e6; color:#111; padding:15px; border-radius:12px; margin-bottom:15px; font-size:13px; font-style:italic; font-weight:600; border: 1px solid #ffe0b2; border-left: 5px solid #F7941E; box-shadow: 0 2px 5px rgba(0,0,0,0.02);">';
+                  html += '<span style="color:#e65100; font-weight:900; display:block; margin-bottom:5px; text-transform:uppercase; font-size:10px; letter-spacing:1px; font-style:normal;">✍️ Feedback Antrenor (' + esc(ath.luna) + ')</span>"' + esc(ath.infoInterne) + '"</div>';
+              }
+
+              var linkCalendarSmart = generateCalendarLink(ath.program, ath.nume);
+              var msjInvitatie = encodeURIComponent("Salut! Hai cu mine la tenis la Club Masters! E super tare atmosfera și antrenamentele sunt geniale! 🎾 Acum au și o super ofertă: dacă vii și tu, câștigăm amândoi antrenamente gratuite sau reduceri la abonament. Hai pe teren!: " + SETARI.LINK_PAGINA_CLUB);
+              
+              html += '<div class="action-row">';
+              html += '<a href="' + linkCalendarSmart + '" target="_blank" class="btn-action btn-cal">📅 Adaugă în Calendar</a>';
+              html += '<a href="https://wa.me/?text=' + msjInvitatie + '" target="_blank" class="btn-action btn-ref">🎁 Invită un prieten</a>';
+              html += '</div>';
+              
+              html += '<div class="stat-grid">';
+              html += '<div class="stat-box"><div class="stat-val">' + ath.prezente + '</div><div class="stat-label">Prezențe</div></div>';
+              html += '<div class="divider"></div>';
+              html += '<div class="stat-box abs"><div class="stat-val">' + ath.absente + '</div><div class="stat-label">Absențe</div></div>';
+              html += '</div>';
+              
+              html += '<div style="margin-bottom:10px;">';
+              html += '<div style="display:flex; justify-content:space-between; font-size:12px; font-weight:800; color:#888; text-transform:uppercase; letter-spacing:1px;">';
+              html += '<span>Efectuat: ' + ath.sedinteEfectuate + ' din ' + ath.sedinteTarget + ' ședințe</span><span style="color:#0B6B2E;">' + ath.procentProgramFix + '%</span>';
+              html += '</div>';
+              html += '<div class="progress-container"><div class="progress-bar" style="width: ' + ath.procentProgramFix + '%"></div></div>';
+              html += '</div>';
+
+              html += '<strong style="font-size:11px; color:#111; display:block; margin-top:20px; margin-bottom:10px; text-transform:uppercase;">🎖️ Vitrina cu Trofee</strong>';
+              html += '<div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px;">';
+              if (ath.procent === 100 && ath.prezente >= ath.sedinteTarget && ath.sedinteTarget > 0) { html += '<div style="flex:1; background:linear-gradient(135deg, #fff, #fff9e6); border:1px solid #ffe0b2; border-radius:12px; padding:10px; text-align:center; box-shadow:0 4px 10px rgba(247,148,30,0.1);"><div style="font-size:24px; margin-bottom:5px;">🏆</div><div style="font-size:9px; font-weight:900; color:#e65100; text-transform:uppercase;">Campion<br>Prezență</div></div>'; } 
+              else { html += '<div style="flex:1; background:#f8f9fa; border:1px solid #edf1f5; border-radius:12px; padding:10px; text-align:center; filter:grayscale(100%); opacity:0.5;"><div style="font-size:24px; margin-bottom:5px;">🏆</div><div style="font-size:9px; font-weight:900; color:#888; text-transform:uppercase;">Campion<br>Prezență</div></div>'; }
+              if (ath.sedinteEfectuate >= 4) { html += '<div style="flex:1; background:linear-gradient(135deg, #fff, #e8f5e9); border:1px solid #c8e6c9; border-radius:12px; padding:10px; text-align:center; box-shadow:0 4px 10px rgba(46,125,50,0.1);"><div style="font-size:24px; margin-bottom:5px;">🔥</div><div style="font-size:9px; font-weight:900; color:#2e7d32; text-transform:uppercase;">Super<br>Activ</div></div>'; } 
+              else { html += '<div style="flex:1; background:#f8f9fa; border:1px solid #edf1f5; border-radius:12px; padding:10px; text-align:center; filter:grayscale(100%); opacity:0.5;"><div style="font-size:24px; margin-bottom:5px;">🔥</div><div style="font-size:9px; font-weight:900; color:#888; text-transform:uppercase;">Super<br>Activ</div></div>'; }
+              if (ath.recuperari > 0) { html += '<div style="flex:1; background:linear-gradient(135deg, #fff, #e3f2fd); border:1px solid #bbdefb; border-radius:12px; padding:10px; text-align:center; box-shadow:0 4px 10px rgba(13,71,161,0.1);"><div style="font-size:24px; margin-bottom:5px;">🪃</div><div style="font-size:9px; font-weight:900; color:#0d47a1; text-transform:uppercase;">Maestrul<br>Recuperării</div></div>'; } 
+              else { html += '<div style="flex:1; background:#f8f9fa; border:1px solid #edf1f5; border-radius:12px; padding:10px; text-align:center; filter:grayscale(100%); opacity:0.5;"><div style="font-size:24px; margin-bottom:5px;">🪃</div><div style="font-size:9px; font-weight:900; color:#888; text-transform:uppercase;">Maestrul<br>Recuperării</div></div>'; }
+              html += '</div>';
+              
+              html += '<div style="margin: 20px 0;">' + arhiveHtml + '</div>';
+              html += absenceHtml;
+              
+              if (ath.plata === 'Achitat') {
+                  html += '<div style="margin-top:15px; font-size:12px; font-weight:900; padding: 14px; border-radius:10px; text-align:center; background:#e8f5e9; border: 1px solid #c8e6c9; color:#2e7d32; text-transform:uppercase; letter-spacing:1px;">✅ Abonament Achitat (' + esc(ath.luna) + ')</div>';
+              } else {
+                  html += '<div class="pay-zone">';
+                  html += '⚠️ ABONAMENT NEACHITAT';
+                  html += '<button class="btn-pay" onclick="togglePayment(this)">💳 Vezi detalii plată</button>';
+                  html += '<div class="payment-details" style="display:none;">';
+                  html += '<b style="color:#111; font-size: 13px;">Transfer bancar (ordin de plată) către:</b><br><br>';
+                  html += 'Beneficiar: <b style="color:#111;">' + SETARI.TITULAR + '</b><br>CIF: <b style="color:#111;">' + SETARI.CUI + '</b><br>Banca: <b style="color:#111;">' + SETARI.BANCA + '</b><br>IBAN: <b style="color:#c62828;">' + SETARI.IBAN + '</b><br><br>';
+                  html += '<div style="background:#fff3e0; padding:10px; border-radius:8px; margin-bottom:10px; border: 1px solid #ffe0b2;">';
+                  html += '<span style="color:#F7941E; font-weight:800;">DETALII PLATĂ:</span><br>Vă rugăm să specificați exact textul de mai jos:<br>';
+                  html += '<b style="color:#111;">' + esc(ath.nume) + ' – luna ' + esc(ath.luna).toLowerCase() + '</b></div>';
+                  html += '<i style="color:#666;">*După efectuarea plății, vă rugăm să trimiteți dovada antrenorului responsabil.</i>';
+                  html += '</div></div>';
+              }
+
+              var linkGrup = SETARI.LINKURI_GRUPURI[ath.grupa];
+              if (linkGrup) { html += '<a href="' + linkGrup + '" target="_blank" class="btn-wa" style="background:#25D366; color:#fff; border: 1px solid #1EBE5D; margin-top:15px; margin-bottom:10px; box-shadow: 0 4px 10px rgba(37, 211, 102, 0.2);">📲 Intră în Grupul WhatsApp (' + esc(ath.grupa) + ')</a>'; }
+              html += '<a href="https://wa.me/' + telefonWhatsApp + '" target="_blank" class="btn-wa" style="background:#F7941E; color:#fff; border: 1px solid #E68310; box-shadow: 0 4px 10px rgba(247, 148, 30, 0.2);">💬 Trimite mesaj Antrenorului</a>';
+              html += '</div>';
+          }
+        });
+        
+        document.getElementById('athletes-container').innerHTML = html;
+        document.getElementById('dashboard-view').style.display = 'block';
+        
+        if (!isCached && hasChampion && typeof confetti === 'function') { confetti({ particleCount: 200, spread: 100, origin: { y: 0.6 }, colors: ['#00AEEF', '#EC008C', '#F7941E', '#C4D600'], disableForReducedMotion: true }); }
+        setTimeout(function(){ var bars = document.querySelectorAll('.progress-bar'); bars.forEach(function(bar){ var w = bar.style.width; bar.style.width = '0%'; setTimeout(function(){ bar.style.width = w; }, 100); }); }, 100);
+      }
+      
+      function showError(err) { document.getElementById('skeleton-view').style.display = 'none'; document.getElementById('loader').style.display = 'none'; document.getElementById('syncText').style.display = 'none'; document.getElementById('login-view').style.display = 'block'; document.getElementById('errorMsg').innerText = 'Eroare de conexiune la server. Încercați din nou.'; document.getElementById('errorMsg').style.display = 'block'; }
+      function logout() {
+        // Deconectare REALĂ: sesiunea se revocă pe server, iar cache-ul local se
+        // șterge efectiv (înainte se ștergea o cheie goală, datele rămâneau în browser).
+        if (SESSION.token) { try { google.script.run.portalLogout(SESSION.token); } catch (e) {} }
+        SESSION.token = ''; SESSION.gdprOk = false; SESSION.installUrl = '';
+        Store.del('mastersToken'); Store.del('mastersCache');
+        Store.del('mastersSavedPhone'); Store.del('mastersSavedName');
+        document.getElementById('phoneInput').value = '';
+        document.getElementById('prenumeInput').value = '';
+        document.getElementById('athletes-container').innerHTML = '';
+        backToLogin();
+      }
+    </script>
+  </body>
+</html>

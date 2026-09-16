@@ -1,0 +1,2173 @@
+/**
+ * ============================================================================
+ *  CLUB TENIS MASTERS — SISTEM CENTRALIZAT (HUB + PORTAL)
+ *  Versiune: 16.0 SUPREME (Multi-Sportivi/Frați + Butoane Absență)
+ * ============================================================================
+ */
+
+var CFG = {
+  SOURCE_ID: '1dV0-2Cdc6iO7pIrlb0jk0DWOkSWC1Mv0', // <-- ID-ul fișierului tău brut (.XLSX)
+  SOURCE_SHEET: 'SEPTEMBRIE 2026_PREZENTA',
+  LOGO_URL: 'https://i.postimg.cc/2ythf64H/unnamed-removebg-preview-(1).png',
+  CLUB:    'CLUB TENIS MASTERS',
+  SUB:     'CLUB ȘI ȘCOALĂ DE TENIS',
+  PHONE:   '0723 028 164',
+  EMAIL:   'clubtenismasters@gmail.com',
+  WHATSAPP_ON: false, 
+  PUBLIC_LINK: 'https://tinyurl.com/portal-prezente-masters',
+  ROWS_PER_GROUP: 40,
+
+  /* ── PORTAL PĂRINȚI: sesiuni, GDPR, cache ── */
+  SESSION_TTL_DAYS:  180,        // cât timp rămâne valabilă o sesiune (se prelungește la fiecare acces)
+  GDPR_VERSION:      '2026.1',   // incrementează pentru a re-cere acordul TUTUROR părinților
+  SNAPSHOT_TTL_SEC:  900,        // 15 min = prospețimea maximă a datelor afișate în portal
+  MAX_ARCHIVE_MONTHS: 8,         // câte luni se încarcă în memoria cache
+  LOGIN_MAX_ATTEMPTS: 10,        // încercări eșuate permise per număr de telefon
+  LOGIN_WINDOW_SEC:   900,       // fereastra de rate-limiting (15 min)
+
+  /* ── FAZA 4: cereri, acorduri, anunțuri, email ── */
+  EMAIL_ON:        false,        // false = mod testare: se afișează previzualizarea, nu se trimite nimic
+  GDPR_FORM_FROM:  '2026-01-01', // răspunsurile la formular de după această dată contează drept acord valid
+  CERERE_MIN_ORE:  24,           // cu câte ore înainte trebuie anunțată o absență pentru recuperare
+  REC_VALABIL_ZILE: 60,          // câte zile rămâne valabilă o recuperare
+
+  /* ── Date pentru emailurile către părinți ── */
+  ZI_SCADENTA: 10,               // ziua din lună până la care se achită abonamentul
+  EMAIL_AUTO: false,             // true = declanșatorul zilnic chiar trimite
+  EMAIL_ZILE_INAINTE: 2,         // cu câte zile înainte de primul antrenament pleacă salutul
+  BANK: {
+    TITULAR: 'Asociația Clubul Sportiv Tenis Masters',
+    IBAN:    'RO38BRDE441SV00151174410',
+    BANCA:   'BRD – Groupe Société Générale',
+    CUI:     '16391843'
+  }
+};
+
+var C = { cyan:'#00AEEF', magenta:'#EC008C', orange:'#F7941E', lime:'#C4D600', ink:'#111111', ink2:'#2B2B2B', white:'#FFFFFF', grey:'#F1F3F4', greyDk:'#9AA0A6' };
+
+var CODES = [
+  { k: 'P',  label: 'Prezent',                 bg: '#D9F2D9', fg: '#0B6B2E' },
+  { k: 'AB', label: 'Absent nemotivat',        bg: '#FBD5D5', fg: '#8A1C1C' },
+  { k: 'E',  label: 'Eligibil pt. recuperare', bg: '#DCE7FB', fg: '#123A8A' },
+  { k: 'R',  label: 'Recuperat',               bg: '#E4D9F7', fg: '#4B1D8A' },
+  { k: 'V',  label: 'Vacanță',                 bg: '#FFF2CC', fg: '#7A5B00' },
+  { k: 'B',  label: 'Bolnav',                  bg: '#FFE0CC', fg: '#8A3B00' },
+  { k: 'AC', label: 'Accidentat',              bg: '#F5D0E8', fg: '#7A0F55' },
+  { k: 'PL', label: 'Ploaie / anulat',         bg: '#D7F2F7', fg: '#0C5A66' }
+];
+
+var ABO = ['1 / săptămână', '2 / săptămână', '3 / săptămână'];
+function aboLabel_(n) { return ABO[Math.max(0, Math.min(2, (n || 1) - 1))]; }
+
+var GROUPS = [
+  { id:'PORT-VERDE', cat:'PORTOCALIU SI VERDE', days:[1, 2, 3, 4, 5], time:'19:00-20:00', accent:C.orange },
+  { id:'GALBEN',     cat:'GALBEN',              days:[1, 2, 3, 4, 5], time:'19:00-20:00', accent:'#FFC107' },
+  { id:'ROSU-MT',    cat:'ROSU - MINI TENIS',   days:[1, 2, 3, 4, 5], time:'18:00-19:00', accent:C.magenta },
+  { id:'PORT-AV',    cat:'PORTOCALIU AVANSAT',  days:[1, 2, 3, 4, 5], time:'17:00-18:00', accent:C.cyan }
+];
+
+var LAY = { headerRows: 6, titleRow: 8, hdrRow: 10, dayRow: 11, dateRow: 12, firstData: 13, fixedCols: 5 };
+var COLS = ['Nr.', 'Antrenor', 'Inițială Nume', 'Prenume', 'Abonament'];
+var STAT = ['Zile\nFixe', 'Prezențe', 'Absențe', 'Recuperări', 'Vacanță', '% participare', 'Evoluție', 'Observații sportive'];
+
+/* ═══════════════════════════ 1. MENIU & SINCRONIZARE ═══════════════════════════ */
+function onOpen() {
+  // Memorăm o dată ID-ul registrului: portalul (rulat ca aplicație web) are astfel
+  // întotdeauna acces la foaia de sesiuni, chiar dacă sincronizarea nu a fost activată.
+  try { props_().setProperty('TARGET_ID', SpreadsheetApp.getActiveSpreadsheet().getId()); } catch (err) {}
+
+  var ui = SpreadsheetApp.getUi();
+
+  // Sus rămân doar acțiunile de zi cu zi. Restul — configurare, întreținere,
+  // diagnostic — stau în „Avansat". Nicio funcție nu a fost eliminată.
+  ui.createMenu('🎾 MASTERS')
+    .addItem('🔄 Sincronizează acum', 'triggerManualSync')
+    .addItem('📅 Setează luna de lucru', 'setWorkingMonth')
+    .addSeparator()
+    .addSubMenu(ui.createMenu('✉️ Emailuri către părinți')
+      .addItem('👁️ Previzualizează șablonul', 'emailPreviewSablon')
+      .addSeparator()
+      .addItem('Trimite memento de plată', 'emailSendReminder')
+      .addItem('Trimite salut de lună nouă', 'emailSendMonthly')
+      .addSeparator()
+      .addItem('📅 Plan trimiteri automate', 'emailPlanArata')
+      .addItem('⏰ ACTIVEAZĂ trimiterea automată', 'installEmailAuto')
+      .addItem('⏹️ OPREȘTE trimiterea automată', 'removeEmailAuto')
+    )
+    .addItem('📋 Cereri de la părinți', 'portalCereriDeschide')
+    .addItem('📣 Anunțuri afișate în portal', 'portalAnunturiDeschide')
+    .addSeparator()
+    .addSubMenu(ui.createMenu('⚙️ Avansat')
+      .addItem('🔁 Reconstruiește memoria cache', 'portalRebuildCache')
+      .addItem('🩺 Diagnostic portal', 'portalDiagnostic')
+      .addItem('✉️ Verifică trimiterea de email', 'emailVerifica')
+      .addItem('🧹 Curăță sesiunile expirate', 'portalCleanSessions')
+      .addSeparator()
+      .addSubMenu(ui.createMenu('🔄 Sincronizare automată')
+        .addItem('⚡ ACTIVEAZĂ Sync LIVE (la editare)', 'installLiveSync')
+        .addItem('⏱️ ACTIVEAZĂ Sync la 5 minute', 'installTimeSync')
+        .addItem('❌ DEZACTIVEAZĂ orice sincronizare', 'removeSyncs')
+      )
+      .addItem('📐 Recalculează zilele din calendar', 'refreshCalendar')
+      .addSeparator()
+      .addSubMenu(ui.createMenu('💬 Notificări WhatsApp (inactiv)')
+        .addItem('LUNA NOUĂ: mesaj de salut', 'waSendMonthly')
+        .addItem('MEMENTO: atenționare plată', 'waSendReminder')
+      )
+      .addItem('📤 Instrucțiuni distribuire', 'syncParentView')
+      .addSeparator()
+      .addItem('🏗️ RECONSTRUIEȘTE TOT SISTEMUL', 'buildAll')
+    ).addToUi();
+}
+
+function installLiveSync() { removeSyncs(true); PropertiesService.getDocumentProperties().setProperty('TARGET_ID', SpreadsheetApp.getActiveSpreadsheet().getId()); ScriptApp.newTrigger('liveSyncWorker').forSpreadsheet(CFG.SOURCE_ID).onEdit().create(); SpreadsheetApp.getUi().alert('✅ Sincronizare LIVE Activată!'); }
+function installTimeSync() { removeSyncs(true); PropertiesService.getDocumentProperties().setProperty('TARGET_ID', SpreadsheetApp.getActiveSpreadsheet().getId()); ScriptApp.newTrigger('liveSyncWorker').timeBased().everyMinutes(5).create(); SpreadsheetApp.getUi().alert('✅ Sincronizare la 5 MINUTE Activată!'); }
+function removeSyncs(silent) { var triggers = ScriptApp.getProjectTriggers(); for (var i = 0; i < triggers.length; i++) { if (triggers[i].getHandlerFunction() === 'liveSyncWorker') { ScriptApp.deleteTrigger(triggers[i]); } } if (silent !== true) SpreadsheetApp.getUi().alert('❌ Toate sincronizările automate au fost oprite.'); }
+function liveSyncWorker(e) {
+  try {
+    var targetId = PropertiesService.getDocumentProperties().getProperty('TARGET_ID');
+    if (!targetId) return;
+    // OPTIMIZARE COTĂ: dacă registrul brut nu s-a modificat, nu rulăm importul deloc.
+    if (!sourceChanged_()) return;
+    var destSS = SpreadsheetApp.openById(targetId);
+    importDataCore(destSS, true);
+    markSourceSynced_();
+    try { getSnapshot_(true); } catch (w) {}   // pre-încălzim memoria cache pentru părinți
+  } catch(err) { console.error(err); }
+}
+
+/** Returnează true dacă fișierul-mamă a fost modificat de la ultima sincronizare. */
+function sourceChanged_() {
+  try {
+    var t = DriveApp.getFileById(CFG.SOURCE_ID).getLastUpdated().getTime();
+    var prev = Number(props_().getProperty('SRC_MTIME') || 0);
+    return t > prev;
+  } catch (err) { return true; }   // dacă nu putem verifica, ne comportăm ca înainte
+}
+function markSourceSynced_() {
+  try { props_().setProperty('SRC_MTIME', String(DriveApp.getFileById(CFG.SOURCE_ID).getLastUpdated().getTime())); } catch (err) {}
+}
+function triggerManualSync() { importDataCore(SpreadsheetApp.getActiveSpreadsheet(), false); }
+
+function importDataCore(ss, isAuto) {
+  // PROTECȚIE: fără lock, două sincronizări simultane pot lăsa grilele goale
+  // exact în momentul în care un părinte deschide portalul.
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) {
+    if (!isAuto) SpreadsheetApp.getUi().alert('O sincronizare este deja în curs. Reîncearcă peste câteva secunde.');
+    return;
+  }
+  try {
+    importDataCore_(ss, isAuto);
+  } finally {
+    try { invalidateSnapshot_(); } catch (err) {}
+    lock.releaseLock();
+  }
+}
+
+function importDataCore_(ss, isAuto) {
+  if (!CFG.SOURCE_ID) { if(!isAuto) SpreadsheetApp.getUi().alert('Lipsește ID-ul fișierului sursă.'); return; }
+  var src; try { src = SpreadsheetApp.openById(CFG.SOURCE_ID); } catch (e) { if(!isAuto) SpreadsheetApp.getUi().alert('Eroare acces registrul brut.'); return; }
+  
+  var sheet = null, targetName = CFG.SOURCE_SHEET.trim().toUpperCase(), allSheets = src.getSheets();
+  for (var s=0; s<allSheets.length; s++) { if (allSheets[s].getName().trim().toUpperCase() === targetName) { sheet = allSheets[s]; break; } }
+  if (!sheet) { if(!isAuto) SpreadsheetApp.getUi().alert('Eroare: Nu am putut găsi fila "' + CFG.SOURCE_SHEET + '".'); return; }
+  
+  var blocks = parseSourceSheet_(sheet), imported = 0, marksCount = 0, clearedSheets = {}; 
+
+  blocks.forEach(function (b) {
+    var g = matchGroup_(b.category);
+    if (!g) return;
+    
+    var shName = sheetName_(g);
+    var sh = ss.getSheetByName(shName);
+    if (!sh) { 
+        var all = ss.getSheets(); 
+        for(var k=0; k<all.length; k++) { 
+            var t = all[k].getName().toUpperCase();
+            if (g.id === 'ROSU-MT' && t.indexOf('ROSU') > -1) { sh = all[k]; break; }
+            if (g.id === 'PORT-VERDE' && t.indexOf('PORTOCALIU') > -1 && t.indexOf('19') > -1) { sh = all[k]; break; }
+            if (g.id === 'PORT-AV' && t.indexOf('PORTOCALIU') > -1 && t.indexOf('17') > -1) { sh = all[k]; break; }
+            if (g.id === 'GALBEN' && t.indexOf('GALBEN') > -1) { sh = all[k]; break; }
+        } 
+    }
+    if (!sh) return; 
+
+    var actualShName = sh.getName();
+    var headers = sh.getRange(LAY.dayRow, 1, 1, sh.getLastColumn()).getValues()[0];
+    var statCol = headers.indexOf('Zile\nFixe') + 1;
+    var nDays = statCol > 0 ? (statCol - LAY.fixedCols - 1) : (sh.getLastColumn() - LAY.fixedCols);
+
+    if (!clearedSheets[actualShName]) {
+      sh.getRange(LAY.firstData, 2, CFG.ROWS_PER_GROUP, LAY.fixedCols - 1).clearContent(); 
+      sh.getRange(LAY.firstData, LAY.fixedCols + 1, CFG.ROWS_PER_GROUP, nDays).clearContent(); 
+      sh.getRange(LAY.firstData, 3, CFG.ROWS_PER_GROUP, 2).setBackground(null).setFontColor(null).setFontWeight('bold');
+      if (statCol > 0) sh.getRange(LAY.firstData, statCol, CFG.ROWS_PER_GROUP, 1).clearContent(); 
+      clearedSheets[actualShName] = true;
+    }
+
+    var rows = b.athletes.map(function (a) { return [a.coach, a.numeInitiala, a.prenume, aboLabel_(a.perWeek)]; });
+    if (!rows.length) return;
+    
+    var startRow = findLastDataRow_(sh) + 1;
+    if (startRow + rows.length > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), rows.length + 5);
+    sh.getRange(startRow, 2, rows.length, LAY.fixedCols - 1).setValues(rows);
+
+    var dayCols = sh.getRange(LAY.dateRow, LAY.fixedCols + 1, 1, nDays).getValues()[0];
+    var strDayCols = dayCols.map(function(v){ return String(v).trim(); });
+
+    // OPTIMIZARE: se construiesc matricele în memorie și se scriu într-un SINGUR apel
+    // (înainte: ~400 apeluri setValue/setBackground individuale per sincronizare).
+    var marksGrid = [], zileFixeGrid = [], bgGrid = [], fgGrid = [];
+    b.athletes.forEach(function (a, i) {
+      var rIdx = startRow + i, searchStartIdx = 0;
+      var rowMarks = []; for (var z = 0; z < nDays; z++) rowMarks.push('');
+
+      a.marks.forEach(function (mark) {
+        var idx = strDayCols.indexOf(String(mark.n).trim(), searchStartIdx);
+        if (idx > -1 && idx < nDays) { rowMarks[idx] = mark.code; searchStartIdx = idx + 1; marksCount++; }
+      });
+      marksGrid.push(rowMarks);
+      zileFixeGrid.push([a.zileFixe || '']);
+
+      var hasMarks = a.marks.length > 0;
+      var rowOffset = rIdx - LAY.firstData;
+      var defaultBg = (rowOffset % 2 !== 0) ? '#FAFBFC' : C.white; 
+      var bgName = (a.plata === 'Neachitat' && hasMarks) ? '#FFEBEE' : defaultBg;
+      var fgName = (a.plata === 'Neachitat' && hasMarks) ? '#8A1C1C' : C.ink;
+      bgGrid.push([bgName, bgName]);
+      fgGrid.push([fgName, fgName]);
+    });
+
+    if (marksGrid.length) {
+      if (nDays > 0) sh.getRange(startRow, LAY.fixedCols + 1, marksGrid.length, nDays).setValues(marksGrid);
+      if (statCol > 0) sh.getRange(startRow, statCol, zileFixeGrid.length, 1).setValues(zileFixeGrid);
+      sh.getRange(startRow, 3, bgGrid.length, 2).setBackgrounds(bgGrid).setFontColors(fgGrid);
+    }
+    imported += rows.length;
+  });
+  if (!isAuto) { SpreadsheetApp.getUi().alert('Sincronizare Finalizată!\n\nSportivi: ' + imported + '\nPrezențe: ' + marksCount); } else { ss.toast('🔄 Datele au fost actualizate din DB Brută!', 'MASTERS SYNC', 4); }
+}
+
+/* ═══════════════════════════ 2. LOGICĂ PARSARE DB BRUTĂ ═══════════════════════════ */
+function detectBlocks_(data, backgrounds) {
+  var blocks = [], cur = null, globalDayMap = null;
+  var CAT = /\b(INITIERE|MINI\s*TENIS|PORTOCALIU|VERDE|GALBEN|ROSU|ROȘU|RED)\b/i; 
+  
+  for (var r = 0; r < data.length; r++) {
+    var joined = data[r].join(' | ');
+    if (CAT.test(joined) && !/NUME\s*\/?\s*PRENUME/i.test(joined) && !/TOTAL/i.test(joined)) {
+      var catText = data[r].filter(String).join(' ');
+      if (catText.trim() !== '') {
+        cur = { category: catText, headerRow: -1, athletes: [], dayMap: {} };
+        blocks.push(cur); continue;
+      }
+    }
+    if (cur && /NUME\s*\/?\s*PRENUME/i.test(joined)) { 
+      cur.headerRow = r; 
+      var localMap = readDayHeader_(data, r); 
+      if (localMap.cols.length > 0) globalDayMap = localMap;
+      cur.dayMap = globalDayMap || { cols: [], zileFixeCol: -1 }; continue; 
+    }
+    if (cur && cur.headerRow > -1) {
+      
+      var full = String(data[r][3] || '').trim(); 
+      if (!full || full === 'NUME/PRENUME' || /TOTAL/.test(String(full).toUpperCase())) continue; 
+      
+      var parts = full.replace(/\(\d+%\)/g, '').trim().split(/\s+/);
+      var numeComplet = full; 
+      var numeInitiala = parts[0] ? parts[0].charAt(0).toUpperCase() + '.' : '';
+      var prenume = parts.slice(1).join(' ');
+      
+      var marks = [], zf = '';
+      if (cur.dayMap && cur.dayMap.cols) {
+          cur.dayMap.cols.forEach(function (colObj) {
+            var v = String(data[r][colObj.c] || '').trim().toUpperCase();
+            var bgColor = String(backgrounds[r][colObj.c] || '').toLowerCase().trim();
+            var isWhite = (bgColor === '#ffffff' || bgColor === '#fff' || bgColor === 'white' || bgColor === '');
+            
+            var code = '';
+            if (v !== '') { code = normalizeCode_(v); } 
+            else if (!isWhite) { code = 'P'; } 
+            
+            if (code) marks.push({ n: colObj.n, mo: colObj.mo, code: code });
+          });
+      }
+      if (cur.dayMap && cur.dayMap.zileFixeCol > -1) zf = String(data[r][cur.dayMap.zileFixeCol] || '').trim();
+      
+      var tarifVal = String(data[r][31] || '').trim(); 
+      var rawDataPlata = data[r][32]; 
+      var dataPlataStr = '';
+      if (rawDataPlata instanceof Date) { dataPlataStr = pad2_(rawDataPlata.getDate()) + '.' + pad2_(rawDataPlata.getMonth() + 1) + '.' + rawDataPlata.getFullYear(); } 
+      else if (rawDataPlata) { dataPlataStr = String(rawDataPlata).trim(); }
+      var metodaPlataVal = String(data[r][41] || '').trim(); 
+      
+      var plataVal = 'Neachitat';
+      var checkPaymentRange = String(data[r].slice(31, 45).join(' ')).toUpperCase();
+      if (checkPaymentRange.indexOf('ACHITAT') > -1 || metodaPlataVal.toUpperCase().indexOf('ACHITAT') > -1) { plataVal = 'Achitat'; }
+
+      cur.athletes.push({ 
+          coach: String(data[r][2] || '').trim().toUpperCase(), 
+          numeComplet: numeComplet, numeInitiala: numeInitiala, prenume: prenume, 
+          contact: String(data[r][4] || '').trim(), 
+          perWeek: Number(data[r][1]) || 1, 
+          marks: marks, zileFixe: zf, plata: plataVal, rowIdx: r,
+          tarif: tarifVal, dataPlata: dataPlataStr, metodaPlata: metodaPlataVal, 
+          infoInterne:  String(data[r][42] || '').trim() 
+      });
+    }
+  }
+  return blocks.filter(function (b) { return b.athletes.length > 0; });
+}
+
+function readDayHeader_(data, r) {
+  var map = { cols: [], zileFixeCol: -1 };
+  var row = data[r], prevRow = r > 0 ? data[r-1] : [], nextRow = r < data.length - 1 ? data[r+1] : []; 
+  var lastSeenDay = -1;
+  var monthOffset = 0;
+  
+  for (var c = 5; c < 50; c++) { 
+    var text = (String(row[c] || '') + String(prevRow[c] || '')).toUpperCase().replace(/\s/g, '');
+    if (text.indexOf('ZILEFIXE') > -1 || text.indexOf('FIXE') > -1) { map.zileFixeCol = c; break; }
+    
+    var val = row[c]; if (val instanceof Date) val = val.getDate(); var n = Number(val); 
+    if (!(n >= 1 && n <= 31)) {
+        var valNext = nextRow[c];
+        if (valNext instanceof Date) valNext = valNext.getDate();
+        n = Number(valNext);
+    }
+    
+    if (n >= 1 && n <= 31) {
+        if (lastSeenDay === -1) {
+            if (n > 20) monthOffset = -1; 
+        } else {
+            if (lastSeenDay > 20 && n < 10) monthOffset++; 
+        }
+        lastSeenDay = n;
+        map.cols.push({ c: c, n: n, mo: monthOffset }); 
+    }
+  } 
+  return map;
+}
+
+function matchGroup_(category) {
+  var cat = String(category || '').toUpperCase();
+  var cand = GROUPS.filter(function (g) {
+     if(cat.indexOf('VERDE') > -1 && cat.indexOf('PORTOCALIU') > -1) return g.id === 'PORT-VERDE';
+     else if(cat.indexOf('AVANSAT') > -1) return g.id === 'PORT-AV';
+     else if(cat.indexOf('GALBEN') > -1) return g.id === 'GALBEN';
+     else if(cat.indexOf('ROSU') > -1 || cat.indexOf('ROȘU') > -1 || cat.indexOf('RED') > -1 || cat.indexOf('MINI TENIS') > -1) return g.id === 'ROSU-MT';
+     return false;
+  }); return cand[0];
+}
+
+function findLastDataRow_(sh) { var max = sh.getMaxRows() - LAY.firstData + 1; if (max < 1) return LAY.firstData - 1; var vals = sh.getRange(LAY.firstData, 4, max, 1).getValues(); for (var i = 0; i < vals.length; i++) { if (String(vals[i][0]).trim() === '') return LAY.firstData + i - 1; } return LAY.firstData + max - 1; }
+function normalizeCode_(v) { var ok = CODES.map(function (c) { return c.k; }); if (ok.indexOf(v) > -1) return v; if (v === 'X' || v === 'PREZENT') return 'P'; if (v === 'A') return 'AB'; return ''; }
+function sheetName_(g) { return g.cat.substring(0, 10) + ' • ' + g.time.replace(/:00/g, '').replace('-', '-'); }
+
+/* ═══════════════════════════ 3. CONSTRUIRE HUB ADMIN ═══════════════════════════ */
+function buildAll() {
+  // Reconstruirea șterge grilele de prezențe (numele sportivilor se păstrează).
+  // Acum e îngropată în „Avansat", deci confirmăm explicit înainte.
+  try {
+    var ui = SpreadsheetApp.getUi();
+    var r = ui.alert('RECONSTRUIEȘTE TOT SISTEMUL',
+      'Se refac de la zero COPERTĂ, LEGENDĂ, foile de grupă și RAPORT.\n\n' +
+      'Numele sportivilor se păstrează, dar PREZENȚELE DIN GRILE SE ȘTERG\n' +
+      'și trebuie reimportate din registrul brut.\n\nContinui?', ui.ButtonSet.YES_NO);
+    if (r !== ui.Button.YES) return;
+  } catch (err) {}
+  buildAll_();
+}
+
+function buildAll_() { var ss = SpreadsheetApp.getActiveSpreadsheet(), m = getWorkingMonth_(); buildCover_(ss, m); buildLegend_(ss); GROUPS.forEach(function (g) { buildGroupSheet_(ss, g, m); }); buildDashboard_(ss); var order = ['COPERTĂ', 'LEGENDĂ'].concat(GROUPS.map(sheetName_)).concat(['RAPORT']); order.forEach(function (n, i) { var sh = ss.getSheetByName(n); if (sh) { ss.setActiveSheet(sh); ss.moveActiveSheet(i + 1); } }); ss.setActiveSheet(ss.getSheetByName('COPERTĂ')); }
+function buildCover_(ss, m) { var sh = ss.getSheetByName('COPERTĂ') || ss.insertSheet('COPERTĂ', 0); sh.clear(); sh.clearConditionalFormatRules(); sh.setHiddenGridlines(true); sh.setColumnWidths(1, 26, 34); sh.setRowHeights(1, 40, 22); paintDiagonalBands_(sh, 1, 28, 1, 26); bevelBlock_(sh, 'F4:S6', CFG.CLUB, C.ink, C.white, 26); bevelBlock_(sh, 'F7:S8', CFG.SUB, C.lime, C.ink, 12); bevelBlock_(sh, 'F11:S12','REGISTRU DE PREZENȚE — ' + monthLabel_(m).toUpperCase(), C.magenta, C.white, 14); }
+function buildLegend_(ss) { var sh = ss.getSheetByName('LEGENDĂ') || ss.insertSheet('LEGENDĂ'); sh.clear(); sh.setHiddenGridlines(true); sh.setColumnWidths(1, 8, 120); paintDiagonalBands_(sh, 1, 4, 1, 8); bevelBlock_(sh, 'B2:G3', 'LEGENDĂ CODURI DE PREZENȚĂ', C.ink, C.white, 16); sh.getRange(6, 2, 1, 3).setValues([['COD', 'SEMNIFICAȚIE', 'CULOARE']]).setBackground(C.ink).setFontColor(C.white).setFontWeight('bold').setHorizontalAlignment('center'); CODES.forEach(function (c, i) { var r = 7 + i; sh.getRange(r, 2).setValue(c.k).setBackground(c.bg).setFontColor(c.fg).setFontWeight('bold').setHorizontalAlignment('center'); sh.getRange(r, 3).setValue(c.label).setFontWeight('bold'); sh.getRange(r, 4).setBackground(c.bg); }); }
+
+function buildGroupSheet_(ss, g, m) { 
+  var name = sheetName_(g), sh = ss.getSheetByName(name) || ss.insertSheet(name); var keep = harvestAthletes_(sh); sh.clear(); sh.clearConditionalFormatRules(); sh.setHiddenGridlines(true); 
+  var dates = monthGridDays_(m, g.days), nDays = dates.length; var firstDayCol = LAY.fixedCols + 1, statCol = firstDayCol + nDays, lastCol = statCol + STAT.length - 1, lastRow = LAY.firstData + CFG.ROWS_PER_GROUP - 1; 
+  paintDiagonalBands_(sh, 1, LAY.headerRows, 1, lastCol); bevelBlock_(sh, rng_(2, 2, LAY.headerRows - 1, 2), CFG.CLUB + '\n' + CFG.SUB, C.ink, C.white, 13); bevelBlock_(sh, rng_(2, 4, LAY.headerRows - 1, 2), CFG.PHONE + '\n' + CFG.EMAIL, C.white, C.ink, 10); bevelBlock_(sh, rng_(LAY.titleRow, 1, 1, LAY.fixedCols), g.cat + ' | L-V | ' + g.time, g.accent, g.accent === C.lime || g.accent === '#FFC107' ? C.ink : C.white, 12); sh.getRange(LAY.titleRow, LAY.fixedCols + 1, 1, Math.max(lastCol - LAY.fixedCols, 1)).merge().setValue(monthLabel_(m).toUpperCase() + '   •   ' + numarSaptamani_(m) + ' SĂPTĂMÂNI   •   ' + nDays + ' ZILE DE ANTRENAMENT').setBackground(C.ink).setFontColor(C.white).setFontWeight('bold').setHorizontalAlignment('center').setVerticalAlignment('middle'); sh.setRowHeight(LAY.titleRow, 34); sh.getRange(LAY.hdrRow, 1, 3, LAY.fixedCols).setBackground(C.ink2); COLS.forEach(function (t, i) { sh.getRange(LAY.hdrRow, i + 1, 3, 1).merge().setValue(t).setFontColor(C.white).setFontWeight('bold').setFontSize(10).setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true); }); sh.getRange(LAY.hdrRow, firstDayCol, 1, nDays).merge().setValue('PREZENȚE').setBackground(C.ink).setFontColor(C.white).setFontWeight('bold').setHorizontalAlignment('center'); 
+  var wd = [], dd = [], bg = [], bgDate = [], fgDate = [];
+  dates.forEach(function (d) {
+    wd.push(['','L','Ma','Mi','J','V','S','D'][d.getDay() === 0 ? 7 : d.getDay()]);
+    dd.push(d.getDate());
+    var inLuna = (d.getMonth() === m.getMonth() && d.getFullYear() === m.getFullYear());
+    bg.push(inLuna ? g.accent : '#C9CDD1');                 // zilele altei luni: bandă estompată
+    bgDate.push(inLuna ? C.white : '#EDEFF1');
+    fgDate.push(inLuna ? C.ink : C.greyDk);
+  });
+  sh.getRange(LAY.dayRow, firstDayCol, 1, nDays).setValues([wd]).setBackgrounds([bg]).setFontColor(g.accent === '#FFC107' ? C.ink : C.white).setFontWeight('bold').setHorizontalAlignment('center');
+  sh.getRange(LAY.dateRow, firstDayCol, 1, nDays).setValues([dd]).setBackgrounds([bgDate]).setFontColors([fgDate]).setFontWeight('bold').setHorizontalAlignment('center').setBorder(true, true, true, true, true, false, C.greyDk, SpreadsheetApp.BorderStyle.SOLID);
+  markWeekBounds_(sh, dates, firstDayCol, lastRow); sh.getRange(LAY.hdrRow, statCol, 1, STAT.length).merge().setValue('EVOLUȚIE SPORTIVĂ').setBackground(C.lime).setFontColor(C.ink).setFontWeight('bold').setHorizontalAlignment('center'); sh.getRange(LAY.dayRow, statCol, 2, STAT.length).setBackground(C.grey); STAT.forEach(function (t, i) { sh.getRange(LAY.dayRow, statCol + i, 2, 1).merge().setValue(t).setFontWeight('bold').setFontSize(9).setWrap(true).setHorizontalAlignment('center').setVerticalAlignment('middle'); }); var a1First = colLetter_(firstDayCol), a1Last = colLetter_(firstDayCol + nDays - 1), rows = [], stats = []; for (var i = 0; i < CFG.ROWS_PER_GROUP; i++) { var r = LAY.firstData + i; rows.push([i + 1, '', '', '', '']); stats.push(['', '=IF($D'+r+'="";"";COUNTIF('+a1First+r+':'+a1Last+r+';"P"))', '=IF($D'+r+'="";"";COUNTIF('+a1First+r+':'+a1Last+r+';"AB"))', '=IF($D'+r+'="";"";COUNTIF('+a1First+r+':'+a1Last+r+';"R"))', '=IF($D'+r+'="";"";COUNTIF('+a1First+r+':'+a1Last+r+';"V"))', '=IF($D'+r+'="";"";IFERROR(COUNTIF('+a1First+r+':'+a1Last+r+';"P")/COUNTA('+a1First+r+':'+a1Last+r+');""))', '=IF($D'+r+'="";"";SPARKLINE({COUNTIF('+a1First+r+':'+a1Last+r+';"P")\\COUNTIF('+a1First+r+':'+a1Last+r+';"AB")};{"charttype"\\"bar";"color1"\\"#0B6B2E";"color2"\\"#8A1C1C";"max"\\'+nDays+'}))', '']); } sh.getRange(LAY.firstData, 1, CFG.ROWS_PER_GROUP, LAY.fixedCols).setValues(rows); sh.getRange(LAY.firstData, statCol, CFG.ROWS_PER_GROUP, STAT.length).setFormulas(stats); sh.getRange(LAY.firstData, statCol + 5, CFG.ROWS_PER_GROUP, 1).setNumberFormat('0%'); for (var j = 0; j < CFG.ROWS_PER_GROUP; j++) sh.getRange(LAY.firstData + j, 1, 1, lastCol).setBackground(j % 2 ? '#FAFBFC' : C.white); sh.getRange(LAY.firstData, 3, CFG.ROWS_PER_GROUP, 2).setFontWeight('bold').setFontColor(C.ink); sh.getRange(LAY.firstData, 1, CFG.ROWS_PER_GROUP, 1).setHorizontalAlignment('center').setFontColor(C.greyDk); sh.getRange(LAY.hdrRow, 1, lastRow - LAY.hdrRow + 1, lastCol).setBorder(true, true, true, true, true, true, '#CFD3D6', SpreadsheetApp.BorderStyle.SOLID); sh.getRange(LAY.hdrRow, 1, lastRow - LAY.hdrRow + 1, LAY.fixedCols).setBorder(null, null, null, true, null, null, C.ink, SpreadsheetApp.BorderStyle.SOLID_THICK); applyValidation_(sh, firstDayCol, nDays, lastRow); applyConditionalFormats_(sh, firstDayCol, nDays, lastRow); sh.setColumnWidth(1, 35); sh.setColumnWidth(2, 85); sh.setColumnWidth(3, 90); sh.setColumnWidth(4, 140); sh.setColumnWidth(5, 110); for (var k = 0; k < nDays; k++) sh.setColumnWidth(firstDayCol + k, 38); sh.setColumnWidth(statCol, 60); for (var s = 1; s < STAT.length; s++) sh.setColumnWidth(statCol + s, s === 6 ? 260 : 70); sh.setFrozenRows(LAY.dateRow); sh.setFrozenColumns(LAY.fixedCols); sh.setRowHeights(LAY.firstData, CFG.ROWS_PER_GROUP, 24); var sumRow = lastRow + 2; sh.getRange(sumRow, 1, 1, LAY.fixedCols).merge().setValue('TOTAL GRUPĂ').setBackground(C.ink).setFontColor(C.white).setFontWeight('bold').setHorizontalAlignment('center'); var totals = []; for (var d2 = 0; d2 < nDays; d2++) { var L = colLetter_(firstDayCol + d2); totals.push('=COUNTIF(' + L + LAY.firstData + ':' + L + lastRow + ';"P")'); } sh.getRange(sumRow, firstDayCol, 1, nDays).setFormulas([totals]).setBackground(C.lime).setFontWeight('bold').setHorizontalAlignment('center'); if (keep.length) { sh.getRange(LAY.firstData, 2, Math.min(keep.length, CFG.ROWS_PER_GROUP), LAY.fixedCols - 1).setValues(keep.slice(0, CFG.ROWS_PER_GROUP)); } 
+}
+
+function buildDashboard_(ss) { var sh = ss.getSheetByName('RAPORT') || ss.insertSheet('RAPORT'); sh.clear(); sh.setHiddenGridlines(true); sh.setColumnWidths(1, 8, 150); paintDiagonalBands_(sh, 1, 4, 1, 8); bevelBlock_(sh, 'B2:G3', 'RAPORT CENTRALIZAT', C.ink, C.white, 16); sh.getRange(6, 2, 1, 5).setValues([['GRUPĂ', 'ZILE', 'INTERVAL', 'SPORTIVI', 'PREZENȚE TOTAL']]).setBackground(C.ink2).setFontColor(C.white).setFontWeight('bold').setHorizontalAlignment('center'); GROUPS.forEach(function (g, i) { var r = 7 + i, n = "'" + sheetName_(g) + "'"; sh.getRange(r, 2, 1, 3).setValues([[g.cat, dayNames_(g.days), g.time]]); sh.getRange(r, 5).setFormula('=COUNTA(' + n + '!D' + LAY.firstData + ':D1000)'); sh.getRange(r, 6).setFormula('=SUMPRODUCT(COUNTIF(' + n + '!F' + LAY.firstData + ':AZ1000;"P"))'); sh.getRange(r, 2).setFontWeight('bold').setFontColor(g.accent === C.lime || g.accent === '#FFC107' ? C.ink : g.accent); }); sh.getRange(6, 2, GROUPS.length + 1, 5).setBorder(true, true, true, true, true, true, C.greyDk, SpreadsheetApp.BorderStyle.SOLID); }
+function harvestAthletes_(sh) { if (!sh || sh.getLastRow() < LAY.firstData) return []; var n = sh.getLastRow() - LAY.firstData + 1; return sh.getRange(LAY.firstData, 2, n, LAY.fixedCols - 1).getValues().filter(function (r) { return String(r[1]).trim() !== ''; }); }
+function applyValidation_(sh, firstDayCol, nDays, lastRow) { var codes = CODES.map(function (c) { return c.k; }); var vPrez = SpreadsheetApp.newDataValidation().requireValueInList(codes, true).setAllowInvalid(false).build(); sh.getRange(LAY.firstData, firstDayCol, lastRow - LAY.firstData + 1, nDays).setDataValidation(vPrez).setHorizontalAlignment('center').setFontWeight('bold').setFontSize(9); var vAbo = SpreadsheetApp.newDataValidation().requireValueInList(ABO, true).setAllowInvalid(false).build(); sh.getRange(LAY.firstData, 5, lastRow - LAY.firstData + 1, 1).setDataValidation(vAbo).setHorizontalAlignment('center'); var listaAntrenori = ['DANIEL', 'BIANCA', 'ALEX', 'ANDREI']; var vAntr = SpreadsheetApp.newDataValidation().requireValueInList(listaAntrenori, true).setAllowInvalid(true).build(); sh.getRange(LAY.firstData, 2, lastRow - LAY.firstData + 1, 1).setDataValidation(vAntr).setHorizontalAlignment('center'); }
+function applyConditionalFormats_(sh, firstDayCol, nDays, lastRow) { var grid = sh.getRange(LAY.firstData, firstDayCol, lastRow - LAY.firstData + 1, nDays); var rules = CODES.map(function (c) { return SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo(c.k).setBackground(c.bg).setFontColor(c.fg).setBold(true).setRanges([grid]).build(); }); sh.setConditionalFormatRules(rules); }
+
+/* ═══════════════════════════ 4. WHATSAPP ═══════════════════════════ */
+function waSendMonthly() { processWhatsAppNotifications('monthly'); }
+function waSendReminder() { processWhatsAppNotifications('reminder'); }
+function processWhatsAppNotifications(type) {
+  var ui = SpreadsheetApp.getUi(), monthText = monthLabel_(getWorkingMonth_());
+  if (!CFG.WHATSAPP_ON) { ui.alert('🛠️ MOD TESTARE ACTIV 🛠️\n\nMesajele NU vor pleca real.\n\nSistemul va genera un raport pe ecran.'); }
+  var logMessages = [], sentCount = 0;
+  try {
+    var src = SpreadsheetApp.openById(CFG.SOURCE_ID);
+    var sheet = null, targetName = CFG.SOURCE_SHEET.trim().toUpperCase(), allSheets = src.getSheets();
+    for (var s=0; s<allSheets.length; s++) { if (allSheets[s].getName().trim().toUpperCase() === targetName) { sheet = allSheets[s]; break; } }
+    if (!sheet) throw new Error("Foaia sursă nu a fost găsită.");
+    
+    var blocks = parseSourceSheet_(sheet);
+    blocks.forEach(function(b) {
+      b.athletes.forEach(function(a) {
+        var nume = a.numeComplet, prenume = a.prenume, contact = a.contact, plataStatus = a.plata;
+        if (!nume || !contact || contact.length < 9) return;
+        var mesaj = '';
+        if (type === 'monthly') { mesaj = "Salutare! 🎾 Un nou început de lună la Club Tenis Masters!\n\nAcesta este un mesaj de salut pentru începutul lunii " + monthText + " pentru sportivul " + prenume + ".\n\nPuteți urmări evoluția oricând, accesând tabelul aici:\n" + CFG.PUBLIC_LINK; } 
+        else if (type === 'reminder') { if (plataStatus === 'Achitat') return; mesaj = "Salut! 🎾 Sperăm că " + prenume + " a avut o săptămână excelentă pe teren la Club Tenis Masters!\n\nÎți reamintim, cu zâmbetul pe buze, de achitarea abonamentului pentru luna " + monthText + ".\n\nTabelul poate fi văzut aici:\n" + CFG.PUBLIC_LINK; }
+        if (mesaj !== '') { if (!CFG.WHATSAPP_ON) logMessages.push("Către: " + contact + " (" + nume + " " + prenume + ")\n" + mesaj + "\n--------------------"); sentCount++; }
+      });
+    });
+    if (!CFG.WHATSAPP_ON) { if (logMessages.length > 0) ui.alert('Mesaje generate (' + sentCount + '):\n\n' + logMessages.slice(0, 3).join('\n') + '\n... (etc)'); else ui.alert('Nu au fost găsiți sportivi eligibili pentru acest tip de mesaj.'); } else { ui.alert('✅ S-au trimis cu succes ' + sentCount + ' mesaje pe WhatsApp!'); }
+  } catch(e) { ui.alert('Eroare la citirea bazei de date a antrenorilor: ' + e.message); }
+}
+
+/* ═══════════════════════════ UTILITARE ═════════════════════════════════ */
+function getWorkingMonth_() { var v = PropertiesService.getDocumentProperties().getProperty('MONTH'); if (v) { var p = v.split('-'); return new Date(Number(p[0]), Number(p[1]) - 1, 1); } var now = new Date(); return new Date(now.getFullYear(), now.getMonth(), 1); }
+
+function monthDays_(monthStart, weekdays) { 
+  var y = monthStart.getFullYear(), m = monthStart.getMonth(), last = new Date(y, m + 1, 0).getDate(), out = []; 
+  for (var d = 1; d <= last; d++) { 
+      var dt = new Date(y, m, d), wd = dt.getDay() === 0 ? 7 : dt.getDay(); 
+      if (weekdays.indexOf(wd) > -1) out.push(dt); 
+  } 
+  return out; 
+}
+
+function paintDiagonalBands_(sh, r1, nRows, c1, nCols) { var order = [C.cyan, C.magenta, C.orange, C.lime], bgs = []; for (var r = 0; r < nRows; r++) { var row = []; for (var c = 0; c < nCols; c++) { var band = Math.floor((((c + r * 0.55) % 24) + 24) % 24 / 6); row.push(order[band]); } bgs.push(row); } sh.getRange(r1, c1, nRows, nCols).setBackgrounds(bgs); }
+function bevelBlock_(sh, a1, text, bg, fg, size) { var rg = sh.getRange(a1); rg.merge().setValue(text).setBackground(bg).setFontColor(fg).setFontSize(size || 12).setFontWeight('bold').setFontFamily('Montserrat').setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true); rg.setBorder(true, true, null, null, null, null, '#FFFFFF', SpreadsheetApp.BorderStyle.SOLID_THICK); rg.setBorder(null, null, true, true, null, null, '#00000055', SpreadsheetApp.BorderStyle.SOLID_THICK); var r = rg.getLastRow(), c = rg.getLastColumn(); try { sh.getRange(r + 1, rg.getColumn() + 1, 1, rg.getNumColumns()).setBackground('#00000022'); sh.getRange(rg.getRow() + 1, c + 1, rg.getNumRows(), 1).setBackground('#00000022'); } catch (e) { } }
+function insertLogo_(sh, col, row) { if (!CFG.LOGO_URL) return; try { var blob = UrlFetchApp.fetch(CFG.LOGO_URL).getBlob(), img = sh.insertImage(blob, col, row); img.setWidth(150).setHeight(150); } catch (e) { } }
+function rng_(row, col, nRows, nCols) { return colLetter_(col) + row + ':' + colLetter_(col + nCols - 1) + (row + nRows - 1); }
+function colLetter_(n) { var s = ''; while (n > 0) { var r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = (n - 1 - r) / 26; } return s; }
+function dayNames_(days) { var N = ['', 'LUNI', 'MARȚI', 'MIERCURI', 'JOI', 'VINERI']; return days.map(function (d) { return N[d]; }).join(' – '); }
+function monthLabel_(d) { var M = ['IANUARIE','FEBRUARIE','MARTIE','APRILIE','MAI','IUNIE','IULIE','AUGUST','SEPTEMBRIE','OCTOMBRIE','NOIEMBRIE','DECEMBRIE']; return M[d.getMonth()] + ' ' + d.getFullYear(); }
+function setWorkingMonth() { var ui = SpreadsheetApp.getUi(); var res = ui.prompt('Luna de lucru', 'Scrie luna în format AAAA-LL (Ex: 2026-09)', ui.ButtonSet.OK_CANCEL); if (res.getSelectedButton() !== ui.Button.OK) return; var v = res.getResponseText().trim(); if (!/^\d{4}-\d{2}$/.test(v)) { ui.alert('Format greșit.'); return; } PropertiesService.getDocumentProperties().setProperty('MONTH', v);
+  var p = v.split('-'), luna = new Date(Number(p[0]), Number(p[1]) - 1, 1);
+  var q = ui.alert('Luna a fost salvată: ' + monthLabel_(luna) + '\n\n' +
+                   'Grila va avea ' + numarSaptamani_(luna) + ' săptămâni complete.\n\n' +
+                   'Recalculez acum zilele din calendar?\n' +
+                   '(numele sportivilor se păstrează; prezențele se reimportă din registrul brut)',
+                   ui.ButtonSet.YES_NO);
+  if (q === ui.Button.YES) { refreshCalendar(); }
+  else { SpreadsheetApp.getActiveSpreadsheet().toast('Luna a fost salvată. Rulează „3. Recalculează zilele din calendar" când ești gata.', 'MASTERS', 8); }
+}
+function refreshCalendar() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), m = getWorkingMonth_();
+  GROUPS.forEach(function (g) { buildGroupSheet_(ss, g, m); });
+  buildDashboard_(ss);
+  try { invalidateSnapshot_(); } catch (err) {}
+  ss.toast('Calendar recalculat: ' + monthLabel_(m) + ' — ' + numarSaptamani_(m) + ' săptămâni.', 'MASTERS', 6);
+}
+function syncParentView() { SpreadsheetApp.getUi().alert('Apasă Fișier -> Trimite (Share) -> Public pentru a partaja tabelul.'); }
+
+/* ═══════════════════════════ 5. WEB APP: PORTAL PĂRINȚI ═══════════════════════════ */
+var PORTAL = {
+  COL_AP: 42, COL_AQ: 43,
+  STATUS_LABEL: { 'P':  'A participat', 'AB': 'A absentat', 'E':  'A absentat (anunțat din timp)', 'R':  'A recuperat ședința', 'V':  'Vacanță', 'B':  'A fost bolnav', 'AC': 'Accidentat', 'PL': 'Ședință anulată (ploaie)' }
+};
+var LUNI_RO = ['IANUARIE','FEBRUARIE','MARTIE','APRILIE','MAI','IUNIE','IULIE','AUGUST','SEPTEMBRIE','OCTOMBRIE','NOIEMBRIE','DECEMBRIE'];
+
+/**
+ * Punctul de intrare al portalului.
+ * NOU: dacă URL-ul conține ?t=<token> (cazul scurtăturii de pe ecranul principal),
+ * sesiunea este validată pe server ȘI datele sunt injectate direct în pagină.
+ * Rezultat: aplicația se deschide deja autentificată, fără niciun apel suplimentar
+ * și fără să depindă de localStorage (blocat în PWA pe iOS).
+ */
+function doGet(e) {
+  var boot = { token: '', gdprOk: false, gdprVersion: CFG.GDPR_VERSION, appUrl: portalAppUrl_(), installUrl: '', anunt: '', data: null };
+  try { boot.anunt = getAnunturi_(); } catch (err) {}
+  try {
+    var t = (e && e.parameter && e.parameter.t) ? String(e.parameter.t).trim() : '';
+    if (t) {
+      var sess = sessValidate_(t);
+      if (sess) {
+        boot.token = t;
+        boot.gdprOk = sess.gdprOk;
+        boot.installUrl = boot.appUrl ? (boot.appUrl + '?t=' + encodeURIComponent(t)) : '';
+        var r = getAthleteData(sess.telefon);
+        if (r && r.success) boot.data = r.data;
+      }
+    }
+  } catch (err) { boot.data = null; }
+
+  var tpl = HtmlService.createTemplateFromFile('Index');
+  tpl.BOOT = jsonForHtml_(boot);
+  return tpl.evaluate()
+    .setTitle('Portal Părinți - Club Tenis Masters')
+    .setFaviconUrl('https://i.postimg.cc/2ythf64H/unnamed-removebg-preview-(1).png')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/** Serializare sigură pentru injectare într-un tag <script>. */
+function jsonForHtml_(obj) {
+  return JSON.stringify(obj)
+    .replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
+    .replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+}
+function parseSheetDate_(sheetName) { var parts = String(sheetName).trim().toUpperCase().split('_')[0].split(' '); var l = LUNI_RO.indexOf(parts[0]); var y = parseInt(parts[1], 10); if (l > -1 && y > 2000) return new Date(y, l, 1); return null; }
+
+// LOGICĂ NOUĂ: GĂSEȘTE TOȚI SPORTIVII DE PE ACELAȘI NUMĂR DE TELEFON (PENTRU FRAȚI)
+/**
+ * Construiește istoricul zilnic al unui sportiv pentru o lună dată.
+ * Extras din extractAthletesFromSheet_ ca să fie refolosit și de calea rapidă (cache).
+ * Logica de afișare este IDENTICĂ cu cea anterioară.
+ */
+function buildIstoric_(a, an, lunaIndex, azi) {
+  var istoricZile = [];
+  (a.marks || []).forEach(function(mark) {
+      var code = mark.code, ziNumar = mark.n, monthOffset = mark.mo;
+      var dataAntrenament = new Date(an, lunaIndex + monthOffset, ziNumar, 23, 59, 59);
+      var timestamp = dataAntrenament.getTime();
+      var isFuture = dataAntrenament > azi;
+
+      var displayMonth = LUNI_RO[dataAntrenament.getMonth()];
+      var displayDate = ziNumar + ' ' + displayMonth;
+
+      var statTxt = '', eligibil = '', codCuloare = '#111';
+      if (isFuture) {
+          statTxt = 'Urmează participarea'; codCuloare = '#9AA0A6'; code = 'FUTURE';
+      } else {
+          if (code === 'COLOR_PRESENT') code = 'P';
+          statTxt = PORTAL.STATUS_LABEL[code] || code;
+          if (code === 'P' || code === 'R') codCuloare = '#0B6B2E';
+          else if (code === 'AB') {
+              codCuloare = '#d32f2f';
+              var infoLow = String(a.infoInterne || '').toLowerCase();
+              if (infoLow.indexOf('24h') > -1 || infoLow.indexOf('din timp') > -1) eligibil = 'Eligibil pentru recuperare';
+              else eligibil = 'Neeligibil pentru recuperare (anunțat târziu)';
+          } else if (code === 'E' || code === 'B' || code === 'AC') { eligibil = 'Eligibil pentru recuperare'; codCuloare = '#F7941E'; }
+          else if (code === 'PL') { codCuloare = '#0C5A66'; }
+      }
+      istoricZile.push({ displayDate: displayDate, dataZilnica: ziNumar, timestamp: timestamp, status: statTxt, cod: code, eligibil: eligibil, culoare: codCuloare });
+  });
+  return istoricZile;
+}
+
+/**
+ * Citire directă din foaia brută (păstrată pentru compatibilitate).
+ * SECURITATE: potrivirea numărului de telefon este acum STRICTĂ (ultimele 9 cifre),
+ * nu substring în ambele sensuri — care putea returna copiii altor familii.
+ */
+function extractAthletesFromSheet_(sheet, cleanPhone, sDate, azi) {
+  var blocks = parseSourceSheet_(sheet);
+  var an = sDate.getFullYear(), lunaIndex = sDate.getMonth();
+  var ph = normPhone_(cleanPhone);
+  var foundAthletes = [];
+
+  for (var i = 0; i < blocks.length; i++) {
+      for (var j = 0; j < blocks[i].athletes.length; j++) {
+          var a = blocks[i].athletes[j];
+          if (!phoneMatchList_(ph, phoneListFromCell_(a.contact))) continue;
+          foundAthletes.push({
+              athleteObj: a,
+              groupObj: matchGroup_(blocks[i].category) || { cat: blocks[i].category, time: '' },
+              istoric: buildIstoric_(a, an, lunaIndex, azi)
+          });
+      }
+  }
+  return foundAthletes;
+}
+
+/**
+ * API public (semnătură NESCHIMBATĂ).
+ * Înainte: recitea TOATE foile lunare (valori + fundaluri) la fiecare login => 5-20 s.
+ * Acum: citește din snapshot-ul comprimat din CacheService => sub 1 s.
+ */
+function getAthleteData(phone) {
+  var ph = normPhone_(phone);
+  if (!ph) return { error: 'Introduceți un număr valid (minim 9 cifre).' };
+
+  var snap = null;
+  try { snap = getSnapshot_(false); } catch (err) { return { error: 'Baza de date se actualizează.' }; }
+  if (!snap) return { error: 'Baza de date se actualizează.' };
+
+  return composeAthleteData_(snap, ph, new Date());
+}
+
+/** Compune răspunsul pentru portal din snapshot. Formatul returnat este identic cu cel anterior. */
+function composeAthleteData_(snap, ph, azi) {
+  var allFound = {}, curName = snap.curSheet;
+  var cereriPh = cereriPentruTelefon_(ph);
+
+  snap.months.forEach(function(mo) {
+    mo.ath.forEach(function(a) {
+      if (!phoneMatchList_(ph, a.ph)) return;
+
+      var ext = {
+        athleteObj: a,
+        groupObj: matchGroup_(a.cat) || { cat: a.cat, time: '' },
+        istoric: buildIstoric_(a, mo.y, mo.m, azi)
+      };
+      ext.istoric.sort(function(x, y) { return x.timestamp - y.timestamp; });
+
+      var numeId = a.numeComplet;
+      if (!allFound[numeId]) allFound[numeId] = { archiveList: [], mainData: null };
+
+      var lunaDisplay = String(mo.name).replace('_PREZENTA', '').trim();
+      allFound[numeId].archiveList.push({
+         dateObj: new Date(mo.y, mo.m, 1), rawExt: ext,
+         obj: {
+             lunaNume: lunaDisplay, istoric: ext.istoric,
+             plataInfo: { status: a.plata, data: a.dataPlata, metoda: a.metodaPlata, tarif: a.tarif }
+         }
+      });
+      if (mo.name === curName) { allFound[numeId].mainData = ext; allFound[numeId].mainData.lunaSursa = lunaDisplay; }
+    });
+  });
+
+  var results = [];
+  Object.keys(allFound).forEach(function(numeId) {
+      var athData = allFound[numeId];
+      athData.archiveList.sort(function(a, b) { return b.dateObj - a.dateObj; });
+
+      var esteInactivLunaCurenta = false;
+      if (!athData.mainData || (athData.mainData.istoric && athData.mainData.istoric.length === 0)) { esteInactivLunaCurenta = true; }
+
+      if (!athData.mainData && athData.archiveList.length > 0) { athData.mainData = athData.archiveList[0].rawExt || {athleteObj: {}, groupObj: {}}; athData.mainData.lunaSursa = athData.archiveList[0].obj.lunaNume; }
+
+      if (athData.mainData) {
+          var arhiveFinale = athData.archiveList.map(function(item) { return item.obj; }).slice(0, 4);
+          var a = athData.mainData.athleteObj, g = athData.mainData.groupObj;
+          var prez = 0, abs = 0, rec = 0;
+          (athData.mainData.istoric || []).forEach(function(zi) { if (zi.cod === 'P') prez++; if (zi.cod === 'AB') abs++; if (zi.cod === 'R') rec++; });
+
+          var baseProgramStr = ''; if (g && g.cat) baseProgramStr = 'L-V | ' + (g.time || '');
+          var finalProgram = baseProgramStr;
+          if (a.zileFixe && String(a.zileFixe).trim() !== '') {
+             var customZile = String(a.zileFixe).trim().toUpperCase();
+             if (/\d/.test(customZile)) finalProgram = customZile; else finalProgram = customZile + (g.time ? ' | ' + g.time : '');
+          }
+          var sedinteTarget = (a.perWeek || 1) * 4, sedinteEfectuate = prez + rec;
+          var procentProgramFix = Math.min(100, Math.round((sedinteEfectuate / (sedinteTarget || 1)) * 100));
+          var total = prez + abs; var procent = total > 0 ? Math.round((prez / total) * 100) : 0;
+
+          results.push({
+              nume: a.numeComplet || '',
+              grupa: g.cat || '', antrenor: a.coach || '', program: finalProgram,
+              prezente: prez, absente: abs, recuperari: rec, procent: procent, plata: a.plata || '',
+              inactiv: esteInactivLunaCurenta, luna: athData.mainData.lunaSursa, arhive: arhiveFinale,
+              sedinteTarget: sedinteTarget, programFix: programFixLabel_(a, g), sedinteEfectuate: sedinteEfectuate, procentProgramFix: procentProgramFix,
+              infoInterne: a.infoInterne || '',
+              istoricCurent: athData.mainData.istoric || [],
+              /* ── FAZA 4 ── */
+              recuperari_portofel: portofelRecuperari_(athData.archiveList, azi),
+              cereri: (cereriPh[normName_(a.numeComplet)] || [])
+          });
+      }
+  });
+
+  if (results.length === 0) return { error: 'Numărul nu a fost găsit în baza de date.' };
+  results.sort(function(a, b) { return a.nume.localeCompare(b.nume); });
+  return { success: true, data: results };
+}
+function pad2_(n) { n = String(n); return n.length < 2 ? '0' + n : n; }
+function extractOra_(txt, fallback) { var m = String(txt || '').match(/(\d{1,2})[.:h](\d{2})\s*[-–]\s*(\d{1,2})[.:h](\d{2})/); if (!m) return fallback || ''; return pad2_(m[1]) + ':' + m[2] + '-' + pad2_(m[3]) + ':' + m[4]; }
+function formatZileFixe_(txt) { var s = String(txt || '').toUpperCase().replace(/(\d{1,2})[.:h](\d{2})\s*[-–]\s*(\d{1,2})[.:h](\d{2})/g, '').trim(); if (!s) return ''; var map = { 'LUNI':'Luni','MARTI':'Marți','MARȚI':'Marți','MIERCURI':'Miercuri','JOI':'Joi','VINERI':'Vineri','SAMBATA':'Sâmbătă','SÂMBĂTĂ':'Sâmbătă','L':'Luni','MA':'Marți','MI':'Miercuri','J':'Joi','V':'Vineri',
+                'LU':'Luni','MAR':'Marți','MIE':'Miercuri','MIER':'Miercuri','JO':'Joi','VI':'Vineri','VIN':'Vineri','S':'Sâmbătă','SA':'Sâmbătă','SAM':'Sâmbătă' }; var out = []; s.split(/[\/,\-–|+]+/).forEach(function(p) { p = p.trim(); if (map[p] && out.indexOf(map[p]) === -1) out.push(map[p]); }); return out.join(', '); }
+function programFixLabel_(a, g) { var zile = formatZileFixe_(a.zileFixe); var ora  = extractOra_(a.zileFixe, '') || (g ? g.time : ''); if (!zile && !ora) return ''; return (zile || 'Program club') + (ora ? ' ' + ora : ''); }
+/* ═══════════════════════════ 6. INFRASTRUCTURĂ PORTAL ═══════════════════════════ */
+/*  Sesiuni persistente, consimțământ GDPR pe server, memorie cache comprimată,
+ *  normalizări sigure pentru telefon și nume. Nimic din logica existentă nu a fost
+ *  eliminat — aceste funcții doar o fac rapidă și sigură.                          */
+
+/* ─────────── 6.1 Proprietăți & utilitare de bază ─────────── */
+
+function props_() {
+  try { var p = PropertiesService.getDocumentProperties(); if (p) return p; } catch (err) {}
+  return PropertiesService.getScriptProperties();
+}
+
+function portalSS_() {
+  try {
+    var act = SpreadsheetApp.getActiveSpreadsheet();
+    if (act) { try { props_().setProperty('TARGET_ID', act.getId()); } catch (e2) {} return act; }
+  } catch (err) {}
+  var id = props_().getProperty('TARGET_ID');
+  if (id) return SpreadsheetApp.openById(id);
+  throw new Error('Registrul portalului nu este configurat. Deschide o dată spreadsheet-ul MASTERS pentru inițializare.');
+}
+
+function portalAppUrl_() {
+  try { return ScriptApp.getService().getUrl() || ''; } catch (err) { return ''; }
+}
+
+function sha256Hex_(txt) {
+  var raw = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(txt), Utilities.Charset.UTF_8);
+  var out = '';
+  for (var i = 0; i < raw.length; i++) { var b = (raw[i] + 256) % 256; out += (b < 16 ? '0' : '') + b.toString(16); }
+  return out;
+}
+
+/** Token opac de 256 biți. Se stochează DOAR hash-uit, niciodată în clar. */
+function newToken_() { return (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, ''); }
+
+/* ─────────── 6.2 Normalizare telefon & nume ─────────── */
+
+/** Reduce orice format (0723 028 164 / +40723.028.164 / 0040723028164) la ultimele 9 cifre. */
+function normPhone_(raw) {
+  var d = String(raw == null ? '' : raw).replace(/\D/g, '');
+  if (d.length < 9) return '';
+  return d.substring(d.length - 9);
+}
+
+/** O celulă „CONTACT” poate conține mai multe numere („0723... / 0744...”). Le extrage pe toate. */
+function phoneListFromCell_(cell) {
+  var txt = String(cell == null ? '' : cell), out = [];
+  var runs = txt.match(/\d[\d\s.\-()]{7,}\d/g) || [];
+  for (var i = 0; i < runs.length; i++) {
+    var n = normPhone_(runs[i]);
+    if (n && out.indexOf(n) === -1) out.push(n);
+  }
+  if (!out.length) { var all = normPhone_(txt); if (all) out.push(all); }
+  return out;
+}
+
+/** Potrivire STRICTĂ (egalitate pe ultimele 9 cifre), nu substring. */
+function phoneMatchList_(phNorm, list) {
+  if (!phNorm || !list || !list.length) return false;
+  return list.indexOf(phNorm) > -1;
+}
+
+function stripDia_(txt) {
+  return String(txt == null ? '' : txt)
+    .replace(/[ăâĂÂ]/g, 'A').replace(/[îÎ]/g, 'I')
+    .replace(/[șşȘŞ]/g, 'S').replace(/[țţȚŢ]/g, 'T')
+    .toUpperCase();
+}
+function normName_(txt) { return stripDia_(txt).replace(/[^A-Z ]/g, ' ').replace(/\s+/g, ' ').trim(); }
+
+/** Al doilea factor: prenumele introdus trebuie să apară în numele complet al unui sportiv. */
+function nameMatches_(input, numeComplet) {
+  var want = normName_(input); if (!want) return false;
+  var have = normName_(numeComplet); if (!have) return false;
+  var haveToks = have.split(' '), wantToks = want.split(' ');
+  for (var i = 0; i < wantToks.length; i++) {
+    if (wantToks[i].length < 2) continue;
+    if (haveToks.indexOf(wantToks[i]) > -1) return true;
+  }
+  return false;
+}
+
+/* ─────────── 6.3 Memorie cache (gzip + fragmentare) ─────────── */
+/*  CacheService permite max. 100 KB per cheie. Snapshot-ul complet este comprimat
+ *  cu gzip (reducere tipică 5-10×) și, dacă mai e nevoie, spart în fragmente.      */
+
+var CACHE_CHUNK_ = 90000;
+
+function cachePutObj_(key, obj, ttlSec) {
+  try {
+    var c = CacheService.getScriptCache();
+    var b64 = Utilities.base64Encode(Utilities.gzip(Utilities.newBlob(JSON.stringify(obj), 'application/json')).getBytes());
+    var map = {}, n = 0;
+    for (var i = 0; i < b64.length; i += CACHE_CHUNK_) { map[key + '__' + n] = b64.substring(i, i + CACHE_CHUNK_); n++; }
+    map[key + '__n'] = String(n);
+    c.putAll(map, ttlSec || 600);
+    return true;
+  } catch (err) { return false; }
+}
+
+function cacheGetObj_(key) {
+  try {
+    var c = CacheService.getScriptCache();
+    var n = Number(c.get(key + '__n') || 0);
+    if (!n) return null;
+    var keys = [], i;
+    for (i = 0; i < n; i++) keys.push(key + '__' + i);
+    var got = c.getAll(keys), b64 = '';
+    for (i = 0; i < n; i++) { var part = got[key + '__' + i]; if (part == null) return null; b64 += part; }
+    var blob = Utilities.newBlob(Utilities.base64Decode(b64), 'application/x-gzip', 'c.gz');
+    return JSON.parse(Utilities.ungzip(blob).getDataAsString());
+  } catch (err) { return null; }
+}
+
+function cacheDrop_(key) {
+  try {
+    var c = CacheService.getScriptCache();
+    var n = Number(c.get(key + '__n') || 0), keys = [key + '__n'];
+    for (var i = 0; i < n; i++) keys.push(key + '__' + i);
+    c.removeAll(keys);
+  } catch (err) {}
+}
+
+/* ─────────── 6.4 Snapshot al registrului brut ─────────── */
+
+function snapVersion_() {
+  var p = props_(), v = p.getProperty('SNAP_VER');
+  if (!v) { v = '1'; p.setProperty('SNAP_VER', v); }
+  return v;
+}
+function invalidateSnapshot_() {
+  var p = props_();
+  p.setProperty('SNAP_VER', String(Number(p.getProperty('SNAP_VER') || 1) + 1));
+}
+function snapKey_() { return 'SNAP_v' + snapVersion_(); }
+
+function getSnapshot_(forceRebuild) {
+  var key = snapKey_();
+  if (!forceRebuild) { var cached = cacheGetObj_(key); if (cached) return cached; }
+  var snap = buildSnapshot_();
+  if (snap) cachePutObj_(key, snap, CFG.SNAPSHOT_TTL_SEC);
+  return snap;
+}
+
+/**
+ * Citește o foaie din registrul brut.
+ * OPTIMIZARE: fundalurile (apelul cel mai lent din API-ul Sheets) se citesc doar
+ * pentru primele 50 de coloane — singurele scanate de readDayHeader_.
+ */
+function parseSourceSheet_(sheet) {
+  var lastRow = sheet.getLastRow(), lastCol = sheet.getLastColumn();
+  if (lastRow < 1 || lastCol < 1) return [];
+  var data = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+  var bg = sheet.getRange(1, 1, lastRow, Math.min(50, lastCol)).getBackgrounds();
+  return detectBlocks_(data, bg);
+}
+
+function buildSnapshot_() {
+  var src = SpreadsheetApp.openById(CFG.SOURCE_ID);
+  var curName = CFG.SOURCE_SHEET.trim();
+  var curDate = parseSheetDate_(curName) || new Date();
+
+  var cand = [];
+  src.getSheets().forEach(function (sheet) {
+    var shName = sheet.getName().trim();
+    if (shName.indexOf('_PREZENTA') === -1) return;
+    var sDate = parseSheetDate_(shName);
+    if (!sDate || sDate > curDate) return;
+    cand.push({ sheet: sheet, name: shName, date: sDate });
+  });
+  cand.sort(function (a, b) { return b.date - a.date; });
+  cand = cand.slice(0, CFG.MAX_ARCHIVE_MONTHS);
+
+  var months = [];
+  cand.forEach(function (item) {
+    var ath = [];
+    parseSourceSheet_(item.sheet).forEach(function (b) {
+      b.athletes.forEach(function (a) {
+        ath.push({
+          cat: b.category, coach: a.coach, numeComplet: a.numeComplet, numeInitiala: a.numeInitiala,
+          prenume: a.prenume, perWeek: a.perWeek, marks: a.marks, zileFixe: a.zileFixe,
+          plata: a.plata, tarif: a.tarif, dataPlata: a.dataPlata, metodaPlata: a.metodaPlata,
+          infoInterne: a.infoInterne, ph: phoneListFromCell_(a.contact)
+        });
+      });
+    });
+    months.push({ name: item.name, y: item.date.getFullYear(), m: item.date.getMonth(), ath: ath });
+  });
+
+  return { v: 1, builtAt: Date.now(), curSheet: curName, months: months };
+}
+
+/* ─────────── 6.5 Registrul de sesiuni ─────────── */
+
+var SESS_ = {
+  SHEET: '_SESIUNI',
+  HDR: ['tokenHash', 'telefon', 'prenume', 'creatLa', 'ultimaAccesare', 'expiraLa', 'device', 'activ', 'gdprVersiune', 'gdprLa']
+};
+
+function sessSheet_() {
+  var ss = portalSS_(), sh = ss.getSheetByName(SESS_.SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(SESS_.SHEET);
+    sh.getRange(1, 1, 1, SESS_.HDR.length).setValues([SESS_.HDR])
+      .setFontWeight('bold').setBackground(C.ink).setFontColor(C.white);
+    sh.setFrozenRows(1);
+    try { sh.hideSheet(); } catch (err) {}
+  }
+  return sh;
+}
+
+function sessFindRow_(hash) {
+  var sh = sessSheet_(), last = sh.getLastRow();
+  if (last < 2) return null;
+  var vals = sh.getRange(2, 1, last - 1, SESS_.HDR.length).getValues();
+  for (var i = vals.length - 1; i >= 0; i--) {
+    if (String(vals[i][0]) === hash) return { row: i + 2, v: vals[i] };
+  }
+  return null;
+}
+
+function sessCreate_(phoneNorm, prenume, device) {
+  var token = newToken_(), hash = sha256Hex_(token), now = new Date();
+  var exp = new Date(now.getTime() + CFG.SESSION_TTL_DAYS * 86400000);
+  sessSheet_().appendRow([hash, phoneNorm, String(prenume || ''), now, now, exp, String(device || '').substring(0, 120), true, '', '']);
+  cachePutObj_('SESS_' + hash, { telefon: phoneNorm, prenume: String(prenume || ''), gdprOk: false, exp: exp.getTime() }, 21600);
+  return token;
+}
+
+function sessValidate_(token) {
+  if (!token) return null;
+  var hash = sha256Hex_(token), ck = 'SESS_' + hash;
+
+  var hit = cacheGetObj_(ck);
+  if (hit) { if (hit.exp && Date.now() > hit.exp) { cacheDrop_(ck); return null; } return hit; }
+
+  var found = sessFindRow_(hash);
+  if (!found) return null;
+  var v = found.v;
+
+  var activ = (v[7] === true || String(v[7]).toUpperCase() === 'TRUE');
+  if (!activ) return null;
+
+  var exp = (v[5] instanceof Date) ? v[5].getTime() : Number(v[5] || 0);
+  if (exp && Date.now() > exp) return null;
+
+  var tel = normPhone_(v[1]);
+  var sess = {
+    telefon: tel,
+    prenume: String(v[2] || ''),
+    // Acordul e valabil dacă a fost confirmat în portal pentru versiunea curentă
+    // SAU dacă părintele chiar a completat formularul (dovada din foaia de răspunsuri).
+    gdprOk: (String(v[8] || '') === String(CFG.GDPR_VERSION)) || gdprDinFormular_(tel),
+    exp: exp
+  };
+  cachePutObj_(ck, sess, 21600);
+
+  // Prelungire silențioasă a sesiunii — se scrie cel mult o dată la 24h.
+  try {
+    var la = (v[4] instanceof Date) ? v[4].getTime() : 0;
+    if (Date.now() - la > 86400000) {
+      var sh = sessSheet_(), now = new Date();
+      sh.getRange(found.row, 5, 1, 2).setValues([[now, new Date(now.getTime() + CFG.SESSION_TTL_DAYS * 86400000)]]);
+    }
+  } catch (err) {}
+
+  return sess;
+}
+
+function sessSetGdpr_(token) {
+  if (!token) return false;
+  var hash = sha256Hex_(token), found = sessFindRow_(hash);
+  if (!found) return false;
+  sessSheet_().getRange(found.row, 9, 1, 2).setValues([[CFG.GDPR_VERSION, new Date()]]);
+  cacheDrop_('SESS_' + hash);
+  return true;
+}
+
+function sessRevoke_(token) {
+  if (!token) return false;
+  var hash = sha256Hex_(token), found = sessFindRow_(hash);
+  if (!found) return false;
+  sessSheet_().getRange(found.row, 8).setValue(false);
+  cacheDrop_('SESS_' + hash);
+  return true;
+}
+
+/* ─────────── 6.6 Rate limiting ─────────── */
+
+function rateBlocked_(bucket) {
+  try { return Number(CacheService.getScriptCache().get('RL_' + bucket) || 0) >= CFG.LOGIN_MAX_ATTEMPTS; }
+  catch (err) { return false; }
+}
+function rateHit_(bucket) {
+  try {
+    var c = CacheService.getScriptCache(), k = 'RL_' + bucket;
+    c.put(k, String(Number(c.get(k) || 0) + 1), CFG.LOGIN_WINDOW_SEC);
+  } catch (err) {}
+}
+function rateClear_(bucket) { try { CacheService.getScriptCache().remove('RL_' + bucket); } catch (err) {} }
+
+/* ─────────── 6.7 API public al portalului ─────────── */
+
+/**
+ * Autentificare: număr de telefon + prenumele sportivului (al doilea factor).
+ * Returnează un token de sesiune persistent și datele complete, într-un SINGUR apel.
+ */
+function portalLogin(phone, prenume, device) {
+  var ph = normPhone_(phone);
+  if (!ph) return { error: 'Introduceți un număr de telefon valid.' };
+  if (!String(prenume || '').trim()) return { error: 'Introduceți prenumele sportivului.' };
+  if (rateBlocked_(ph)) return { error: 'Prea multe încercări eșuate. Reîncercați peste 15 minute.' };
+
+  var snap = null;
+  try { snap = getSnapshot_(false); } catch (err) { return { error: 'Baza de date se actualizează. Reîncercați în câteva momente.' }; }
+  if (!snap) return { error: 'Baza de date se actualizează. Reîncercați în câteva momente.' };
+
+  var nume = {}, gasitTelefon = false;
+  snap.months.forEach(function (mo) {
+    mo.ath.forEach(function (a) {
+      if (phoneMatchList_(ph, a.ph)) { gasitTelefon = true; nume[a.numeComplet] = true; }
+    });
+  });
+
+  if (!gasitTelefon) { rateHit_(ph); return { error: 'Numărul nu a fost găsit în baza de date.' }; }
+
+  var potrivit = false;
+  Object.keys(nume).forEach(function (n) { if (nameMatches_(prenume, n)) potrivit = true; });
+  if (!potrivit) { rateHit_(ph); return { error: 'Prenumele sportivului nu corespunde acestui număr de telefon.' }; }
+
+  rateClear_(ph);
+  var token = sessCreate_(ph, String(prenume).trim(), device);
+  var res = composeAthleteData_(snap, ph, new Date());
+  var appUrl = portalAppUrl_();
+
+  return {
+    success: true,
+    token: token,
+    appUrl: appUrl,
+    installUrl: appUrl ? (appUrl + '?t=' + encodeURIComponent(token)) : '',
+    gdprOk: gdprDinFormular_(ph),          // dacă a completat deja formularul, nu îl mai deranjăm
+    gdprVersion: CFG.GDPR_VERSION,
+    anunt: getAnunturi_(),
+    data: (res && res.success) ? res.data : []
+  };
+}
+
+/** Reîmprospătare pe bază de token (fără re-autentificare). */
+function portalRefresh(token) {
+  var sess = sessValidate_(token);
+  if (!sess) return { error: 'SESIUNE_EXPIRATA' };
+
+  var res = getAthleteData(sess.telefon);
+  if (!res || res.error) return { error: (res && res.error) || 'Eroare necunoscută.' };
+
+  var appUrl = portalAppUrl_();
+  return {
+    success: true,
+    gdprOk: sess.gdprOk,
+    gdprVersion: CFG.GDPR_VERSION,
+    appUrl: appUrl,
+    installUrl: appUrl ? (appUrl + '?t=' + encodeURIComponent(token)) : '',
+    anunt: getAnunturi_(),
+    data: res.data
+  };
+}
+
+/** Consimțământul GDPR devine stare de SERVER, cu versiune și dată — dovadă verificabilă. */
+function portalAcceptGdpr(token) { return { success: sessSetGdpr_(token) }; }
+
+/** Deconectare reală: sesiunea este revocată pe server, nu doar uitată în browser. */
+function portalLogout(token) { return { success: sessRevoke_(token) }; }
+
+/* ─────────── 6.8 Mentenanță (meniu) ─────────── */
+
+function portalRebuildCache() {
+  var ui = SpreadsheetApp.getUi();
+  invalidateSnapshot_();
+  var t0 = Date.now();
+  var snap = getSnapshot_(true);
+  if (!snap) { ui.alert('Nu am putut citi registrul brut.'); return; }
+  var total = 0;
+  snap.months.forEach(function (m) { total += m.ath.length; });
+  ui.alert('✅ Memoria cache a fost reconstruită.\n\nLuni încărcate: ' + snap.months.length +
+           '\nÎnregistrări sportivi: ' + total + '\nDurată: ' + ((Date.now() - t0) / 1000).toFixed(1) + ' s');
+}
+
+function portalCleanSessions() {
+  var ui = SpreadsheetApp.getUi(), sh = sessSheet_(), last = sh.getLastRow();
+  if (last < 2) { ui.alert('Nu există sesiuni înregistrate.'); return; }
+  var vals = sh.getRange(2, 1, last - 1, SESS_.HDR.length).getValues(), now = Date.now(), sterse = 0;
+  for (var i = vals.length - 1; i >= 0; i--) {
+    var exp = (vals[i][5] instanceof Date) ? vals[i][5].getTime() : Number(vals[i][5] || 0);
+    var activ = (vals[i][7] === true || String(vals[i][7]).toUpperCase() === 'TRUE');
+    if ((exp && now > exp) || !activ) { sh.deleteRow(i + 2); sterse++; }
+  }
+  ui.alert('🧹 Sesiuni eliminate: ' + sterse + '\nSesiuni active rămase: ' + Math.max(0, sh.getLastRow() - 1));
+}
+
+function portalDiagnostic() {
+  var ui = SpreadsheetApp.getUi(), out = [];
+  out.push('URL aplicație: ' + (portalAppUrl_() || '(nepublicată încă)'));
+  try {
+    var f = DriveApp.getFileById(CFG.SOURCE_ID);
+    out.push('Registru brut: ' + f.getName() + '  (modificat: ' + f.getLastUpdated().toLocaleString() + ')');
+  } catch (err) { out.push('Registru brut: EROARE DE ACCES — ' + err.message); }
+
+  var t0 = Date.now(), snap = null;
+  try { snap = getSnapshot_(false); } catch (err) { out.push('Snapshot: EROARE — ' + err.message); }
+  if (snap) {
+    var total = 0; snap.months.forEach(function (m) { total += m.ath.length; });
+    out.push('Snapshot: ' + snap.months.length + ' luni / ' + total + ' înregistrări, citit în ' + ((Date.now() - t0) / 1000).toFixed(2) + ' s');
+    out.push('Luna curentă: ' + snap.curSheet);
+  }
+  var sh = sessSheet_();
+  out.push('Sesiuni înregistrate: ' + Math.max(0, sh.getLastRow() - 1));
+  out.push('Versiune GDPR activă: ' + CFG.GDPR_VERSION);
+
+  var tri = ScriptApp.getProjectTriggers().filter(function (t) { return t.getHandlerFunction() === 'liveSyncWorker'; });
+  out.push('Sincronizări automate active: ' + tri.length);
+
+  ui.alert('🩺 DIAGNOSTIC PORTAL\n\n' + out.join('\n'));
+}
+
+/* ═══════════════════════════ 7. FAZA 4: CERERI, ACORDURI, ANUNȚURI ═══════════════════════════ */
+/*  Tot ce scrie portalul ajunge EXCLUSIV în foi proprii, din registrul intermediar.
+ *  Fișierul-mamă al antrenorilor nu este atins niciodată, iar sincronizarea nu poate
+ *  suprascrie nimic din ce introduce un părinte.                                     */
+
+/* ─────────── 7.1 Cereri de la părinți (absență / vacanță) ─────────── */
+
+var CERERI_ = {
+  SHEET: 'CERERI PĂRINȚI',
+  HDR: ['ID', 'Trimis la', 'Telefon', 'Sportiv', 'Tip', 'Data vizată', 'Eligibil recuperare', 'Detalii', 'Status']
+};
+
+function cereriSheet_() {
+  var ss = portalSS_(), sh = ss.getSheetByName(CERERI_.SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(CERERI_.SHEET);
+    sh.getRange(1, 1, 1, CERERI_.HDR.length).setValues([CERERI_.HDR])
+      .setBackground(C.ink).setFontColor(C.white).setFontWeight('bold').setHorizontalAlignment('center');
+    sh.setFrozenRows(1);
+    sh.setColumnWidth(1, 90); sh.setColumnWidth(2, 140); sh.setColumnWidth(3, 110);
+    sh.setColumnWidth(4, 190); sh.setColumnWidth(5, 90);  sh.setColumnWidth(6, 110);
+    sh.setColumnWidth(7, 140); sh.setColumnWidth(8, 260); sh.setColumnWidth(9, 120);
+  }
+  return sh;
+}
+
+function cereriAll_() {
+  var hit = cacheGetObj_('CERERI');
+  if (hit) return hit;
+  var sh = cereriSheet_(), last = sh.getLastRow();
+  var rows = (last < 2) ? [] : sh.getRange(2, 1, last - 1, CERERI_.HDR.length).getValues().map(function (v) {
+    return {
+      id: String(v[0]),
+      ts: (v[1] instanceof Date) ? v[1].getTime() : Number(v[1] || 0),
+      tel: normPhone_(v[2]),
+      sportiv: normName_(v[3]),
+      tip: String(v[4] || ''),
+      data: String(v[5] || ''),
+      eligibil: (v[6] === true || String(v[6]).toUpperCase() === 'DA' || String(v[6]).toUpperCase() === 'TRUE'),
+      detalii: String(v[7] || ''),
+      status: String(v[8] || 'ÎN AȘTEPTARE')
+    };
+  });
+  cachePutObj_('CERERI', rows, 300);
+  return rows;
+}
+
+/** Cererile unui părinte, grupate pe numele normalizat al sportivului. */
+function cereriPentruTelefon_(ph) {
+  var out = {};
+  try {
+    cereriAll_().forEach(function (c) {
+      if (c.tel !== ph) return;
+      if (String(c.status).toUpperCase().indexOf('ANULAT') > -1) return;
+      if (!out[c.sportiv]) out[c.sportiv] = [];
+      out[c.sportiv].push({ id: c.id, tip: c.tip, data: c.data, status: c.status, eligibil: c.eligibil });
+    });
+  } catch (err) {}
+  return out;
+}
+
+/**
+ * Înregistrează o cerere trimisă din portal.
+ * NU scrie în grilele de prezențe și NU atinge fișierul-mamă — doar foaia proprie.
+ * Antrenorul rămâne singurul care decide codul de prezență.
+ */
+function portalCerere(token, sportiv, tip, dataVizata, detalii) {
+  var sess = sessValidate_(token);
+  if (!sess) return { error: 'SESIUNE_EXPIRATA' };
+
+  tip = String(tip || '').toUpperCase();
+  if (tip !== 'ABSENTA' && tip !== 'VACANTA') return { error: 'Tip de cerere necunoscut.' };
+  if (!String(sportiv || '').trim()) return { error: 'Sportiv nespecificat.' };
+
+  // Sportivul trebuie să aparțină chiar acestui părinte.
+  var res = getAthleteData(sess.telefon);
+  if (!res || !res.success) return { error: 'Nu am putut verifica sportivul.' };
+  var alMeu = false, tinta = normName_(sportiv);
+  res.data.forEach(function (a) { if (normName_(a.nume) === tinta) alMeu = true; });
+  if (!alMeu) return { error: 'Sportivul nu este asociat acestui cont.' };
+
+  var dv = String(dataVizata || '').trim();
+
+  // Anti-duplicat: aceeași dată, același tip, același sportiv.
+  var dejaExista = false;
+  cereriAll_().forEach(function (c) {
+    if (c.tel === sess.telefon && c.sportiv === tinta && c.tip === tip && c.data === dv &&
+        String(c.status).toUpperCase().indexOf('ANULAT') === -1) dejaExista = true;
+  });
+  if (dejaExista) return { error: 'DUPLICAT', mesaj: 'Ai anunțat deja această dată.' };
+
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(15000); } catch (err) { return { error: 'Sistem ocupat. Reîncearcă în câteva secunde.' }; }
+  try {
+    var eligibil = cerereEsteEligibila_(tip, dv, res.data, tinta);
+    var id = 'C' + String(Date.now()).slice(-9);
+    cereriSheet_().appendRow([
+      id, new Date(), sess.telefon, String(sportiv).trim(), tip, dv,
+      eligibil ? 'DA' : 'NU', String(detalii || '').substring(0, 300), 'ÎN AȘTEPTARE'
+    ]);
+    cacheDrop_('CERERI');
+    return { success: true, cerere: { id: id, tip: tip, data: dv, status: 'ÎN AȘTEPTARE', eligibil: eligibil } };
+  } finally { lock.releaseLock(); }
+}
+
+/** Regula de eligibilitate: absență cu min. CERERE_MIN_ORE înainte; vacanță cu min. 7 zile. */
+function cerereEsteEligibila_(tip, dataVizata, athleteList, numeNorm) {
+  var tsAntrenament = 0;
+  athleteList.forEach(function (a) {
+    if (normName_(a.nume) !== numeNorm) return;
+    (a.istoricCurent || []).forEach(function (z) { if (z.displayDate === dataVizata) tsAntrenament = z.timestamp; });
+  });
+  if (!tsAntrenament) return false;
+  var ore = (tsAntrenament - Date.now()) / 3600000;
+  return (tip === 'VACANTA') ? (ore >= 7 * 24) : (ore >= CFG.CERERE_MIN_ORE);
+}
+
+function portalAnuleazaCerere(token, id) {
+  var sess = sessValidate_(token);
+  if (!sess) return { error: 'SESIUNE_EXPIRATA' };
+  var sh = cereriSheet_(), last = sh.getLastRow();
+  if (last < 2) return { error: 'Cererea nu a fost găsită.' };
+  var vals = sh.getRange(2, 1, last - 1, CERERI_.HDR.length).getValues();
+  for (var i = 0; i < vals.length; i++) {
+    if (String(vals[i][0]) === String(id) && normPhone_(vals[i][2]) === sess.telefon) {
+      sh.getRange(i + 2, 9).setValue('ANULAT DE PĂRINTE');
+      cacheDrop_('CERERI');
+      return { success: true };
+    }
+  }
+  return { error: 'Cererea nu a fost găsită.' };
+}
+
+/* ─────────── 7.2 Portofelul de recuperări ─────────── */
+
+/**
+ * Sold informativ de recuperări: ședințele eligibile (E / B / AC) minus cele deja
+ * recuperate (R), pe lunile încărcate. Este o estimare din datele existente —
+ * decizia finală rămâne a antrenorului.
+ */
+function portofelRecuperari_(archiveList, azi) {
+  var eligibile = 0, folosite = 0, ceaMaiVeche = 0;
+  var limita = Date.now() - CFG.REC_VALABIL_ZILE * 86400000;
+
+  (archiveList || []).forEach(function (item) {
+    ((item.obj && item.obj.istoric) || []).forEach(function (z) {
+      if (z.cod === 'R') { folosite++; return; }
+      if (z.cod === 'E' || z.cod === 'B' || z.cod === 'AC') {
+        if (z.timestamp < limita) return;                 // expirată
+        eligibile++;
+        if (!ceaMaiVeche || z.timestamp < ceaMaiVeche) ceaMaiVeche = z.timestamp;
+      }
+    });
+  });
+
+  var disponibile = Math.max(0, eligibile - folosite);
+  var expira = '';
+  if (disponibile > 0 && ceaMaiVeche) {
+    var d = new Date(ceaMaiVeche + CFG.REC_VALABIL_ZILE * 86400000);
+    expira = d.getDate() + ' ' + LUNI_RO[d.getMonth()].toLowerCase();
+  }
+  return { eligibile: eligibile, folosite: folosite, disponibile: disponibile, expira: expira };
+}
+
+/* ─────────── 7.3 Acordul GDPR citit din formular ─────────── */
+
+/** Găsește foaia cu răspunsurile formularului, oricum ar fi denumită. */
+function formSheet_() {
+  var ss = portalSS_(), sheets = ss.getSheets();
+  for (var i = 0; i < sheets.length; i++) {
+    var n = stripDia_(sheets[i].getName());
+    if (n.indexOf('RASPUNSURI') > -1 || n.indexOf('FORM') > -1) return sheets[i];
+  }
+  return null;
+}
+
+/**
+ * Index telefon -> { ts, email } din răspunsurile la formular.
+ * Coloanele sunt detectate după antet, deci formularul poate fi extins fără a atinge codul.
+ * Dacă nu există coloană de telefon, întoarce null (portalul revine la comportamentul anterior).
+ */
+function formIndex_() {
+  var hit = cacheGetObj_('FORMIDX2');
+  if (hit) return hit.absent ? null : hit;
+
+  var sh = formSheet_();
+  if (!sh || sh.getLastRow() < 2) { cachePutObj_('FORMIDX2', { absent: true }, 600); return null; }
+
+  var lastCol = sh.getLastColumn();
+  var hdr = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return stripDia_(h); });
+  var cTel = -1, cMail = -1, cTs = -1, cSport = -1;
+  for (var c = 0; c < hdr.length; c++) {
+    var h = hdr[c];
+    if (cTel   < 0 && (h.indexOf('TELEFON') > -1 || h.indexOf('CONTACT') > -1 || h.indexOf('PHONE') > -1)) cTel = c;
+    if (cMail  < 0 && (h.indexOf('EMAIL') > -1 || h.indexOf('E-MAIL') > -1 || h.indexOf('ADRESA DE MAIL') > -1)) cMail = c;
+    if (cTs    < 0 && (h.indexOf('MARCAJ DE TIMP') > -1 || h.indexOf('TIMESTAMP') > -1)) cTs = c;
+    // Numele sportivului este cheia cea mai sigură: numărul din formular aparține
+    // părintelui care l-a completat și poate diferi de cel scris de antrenor în CONTACT.
+    if (cSport < 0 && (h.indexOf('SPORTIV') > -1 || h.indexOf('COPIL') > -1)) cSport = c;
+  }
+  if (cTel < 0 && cSport < 0) { cachePutObj_('FORMIDX2', { absent: true }, 600); return null; }
+
+  var vals = sh.getRange(2, 1, sh.getLastRow() - 1, lastCol).getValues();
+  var idx = { map: {}, byName: {} };
+  vals.forEach(function (v) {
+    var ts = (cTs > -1) ? parseAnyDate_(v[cTs]) : 0;
+    var rec = { ts: ts, email: (cMail > -1 ? String(v[cMail] || '').trim() : '') };
+
+    if (cTel > -1) {
+      var ph = normPhone_(v[cTel]);
+      if (ph && (!idx.map[ph] || ts > idx.map[ph].ts)) idx.map[ph] = rec;
+    }
+    if (cSport > -1) {
+      var nm = normName_(v[cSport]);
+      if (nm && (!idx.byName[nm] || ts > idx.byName[nm].ts)) idx.byName[nm] = rec;
+    }
+  });
+  cachePutObj_('FORMIDX2', idx, 600);
+  return idx;
+}
+
+/**
+ * Caută răspunsul la formular al unui sportiv: întâi după oricare dintre numerele
+ * din celula CONTACT, apoi după numele sportivului. Numele se compară și inversat
+ * („Ionescu Casian" ≡ „Casian Ionescu"), fiindcă ordinea diferă între surse.
+ */
+function formLookup_(phList, numeComplet) {
+  var idx = formIndex_();
+  if (!idx) return null;
+
+  var i;
+  for (i = 0; phList && i < phList.length; i++) {
+    if (idx.map[phList[i]]) return idx.map[phList[i]];
+  }
+
+  var nm = normName_(numeComplet);
+  if (!nm) return null;
+  if (idx.byName[nm]) return idx.byName[nm];
+
+  var toks = nm.split(' ');
+  if (toks.length >= 2) {
+    var inv = toks.slice(1).concat(toks[0]).join(' ');
+    if (idx.byName[inv]) return idx.byName[inv];
+    var inv2 = [toks[toks.length - 1]].concat(toks.slice(0, toks.length - 1)).join(' ');
+    if (idx.byName[inv2]) return idx.byName[inv2];
+  }
+  return null;
+}
+
+/** Numele sportivilor asociați unui număr de telefon (din snapshot-ul deja memorat). */
+function numeSportiviPentruTelefon_(ph) {
+  var out = [];
+  try {
+    var snap = getSnapshot_(false);
+    if (!snap) return out;
+    var vazut = {};
+    snap.months.forEach(function (mo) {
+      mo.ath.forEach(function (a) {
+        if (phoneMatchList_(ph, a.ph) && !vazut[a.numeComplet]) { vazut[a.numeComplet] = 1; out.push(a.numeComplet); }
+      });
+    });
+  } catch (err) {}
+  return out;
+}
+
+/**
+ * Marcaj de timp tolerant: obiect Date, text ISO, sau formatul românesc
+ * „15.08.2026 22:30:56" folosit de Google Forms. Întoarce 0 dacă nu poate fi citit.
+ */
+function parseAnyDate_(v) {
+  if (v instanceof Date) return v.getTime();
+  var t = String(v == null ? '' : v).trim();
+  if (!t) return 0;
+  var m = t.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})(?:[ ,]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (m) return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]),
+                         Number(m[4] || 0), Number(m[5] || 0), Number(m[6] || 0)).getTime();
+  var p = Date.parse(t);
+  return isNaN(p) ? 0 : p;
+}
+
+/** true dacă părintele a completat efectiv formularul după data-prag configurată. */
+function gdprDinFormular_(ph) {
+  try {
+    var prag = new Date(CFG.GDPR_FORM_FROM + 'T00:00:00').getTime();
+    var valid = function (rec) { return !!rec && (!rec.ts || rec.ts >= prag); };
+
+    var rec = formLookup_([ph], '');
+    if (valid(rec)) return true;
+
+    // Formularul poate fi completat de un părinte al cărui număr nu e cel din
+    // registrul antrenorilor. Căutăm atunci după numele sportivilor acestui cont.
+    var nume = numeSportiviPentruTelefon_(ph);
+    for (var i = 0; i < nume.length; i++) {
+      if (valid(formLookup_(null, nume[i]))) return true;
+    }
+    return false;
+  } catch (err) { return false; }
+}
+
+function emailDinFormular_(ph, numeComplet) {
+  try {
+    var rec = formLookup_([ph], numeComplet || '');
+    if (rec && rec.email) return rec.email;
+    var nume = numeComplet ? [] : numeSportiviPentruTelefon_(ph);
+    for (var i = 0; i < nume.length; i++) {
+      var r2 = formLookup_(null, nume[i]);
+      if (r2 && r2.email) return r2.email;
+    }
+    return '';
+  } catch (err) { return ''; }
+}
+
+/** Detaliile de consimțământ afișate în Centrul GDPR din portal. */
+function portalGdprInfo(token) {
+  var sess = sessValidate_(token);
+  if (!sess) return { error: 'SESIUNE_EXPIRATA' };
+
+  var inFormular = gdprDinFormular_(sess.telefon);
+  var dataFormular = '';
+  try {
+    var idx = formIndex_();
+    if (idx && idx.map && idx.map[sess.telefon] && idx.map[sess.telefon].ts) {
+      var d = new Date(idx.map[sess.telefon].ts);
+      dataFormular = pad2_(d.getDate()) + '.' + pad2_(d.getMonth() + 1) + '.' + d.getFullYear();
+    }
+  } catch (err) {}
+
+  var confirmatInPortal = '', versiune = '';
+  var found = sessFindRow_(sha256Hex_(token));
+  if (found) {
+    versiune = String(found.v[8] || '');
+    if (found.v[9] instanceof Date) {
+      var g = found.v[9];
+      confirmatInPortal = pad2_(g.getDate()) + '.' + pad2_(g.getMonth() + 1) + '.' + g.getFullYear();
+    }
+  }
+
+  return {
+    success: true,
+    telefon: '••• ••• ' + String(sess.telefon).slice(-3),
+    inFormular: inFormular,
+    dataFormular: dataFormular,
+    confirmatInPortal: confirmatInPortal,
+    versiune: versiune,
+    versiuneCurenta: CFG.GDPR_VERSION,
+    dispozitiveActive: sessNumarDispozitive_(sess.telefon)
+  };
+}
+
+function sessNumarDispozitive_(ph) {
+  try {
+    var sh = sessSheet_(), last = sh.getLastRow();
+    if (last < 2) return 0;
+    var vals = sh.getRange(2, 1, last - 1, SESS_.HDR.length).getValues(), n = 0;
+    vals.forEach(function (v) {
+      var activ = (v[7] === true || String(v[7]).toUpperCase() === 'TRUE');
+      var exp = (v[5] instanceof Date) ? v[5].getTime() : 0;
+      if (activ && normPhone_(v[1]) === ph && (!exp || Date.now() < exp)) n++;
+    });
+    return n;
+  } catch (err) { return 0; }
+}
+
+/** Dreptul de retragere: revocă toate dispozitivele și înregistrează cererea. */
+function portalGdprRetrage(token) {
+  var sess = sessValidate_(token);
+  if (!sess) return { error: 'SESIUNE_EXPIRATA' };
+  try {
+    cereriSheet_().appendRow(['G' + String(Date.now()).slice(-9), new Date(), sess.telefon, '(toți sportivii)',
+      'GDPR', '', '', 'Retragerea consimțământului, solicitată din portal', 'ÎN AȘTEPTARE']);
+    cacheDrop_('CERERI');
+  } catch (err) {}
+
+  var sh = sessSheet_(), last = sh.getLastRow(), n = 0;
+  if (last >= 2) {
+    var vals = sh.getRange(2, 1, last - 1, SESS_.HDR.length).getValues();
+    for (var i = 0; i < vals.length; i++) {
+      if (normPhone_(vals[i][1]) === sess.telefon) {
+        sh.getRange(i + 2, 8).setValue(false);
+        cacheDrop_('SESS_' + String(vals[i][0]));
+        n++;
+      }
+    }
+  }
+  return { success: true, dispozitiveRevocate: n };
+}
+
+/* ─────────── 7.4 Anunțuri editabile din foaie ─────────── */
+
+var ANUNT_SHEET_ = 'ANUNȚURI';
+
+function anunturiSheet_() {
+  var ss = portalSS_(), sh = ss.getSheetByName(ANUNT_SHEET_);
+  if (!sh) {
+    sh = ss.insertSheet(ANUNT_SHEET_);
+    sh.getRange(1, 1, 1, 2).setValues([['TEXT ANUNȚ', 'ACTIV']])
+      .setBackground(C.ink).setFontColor(C.white).setFontWeight('bold');
+    sh.setFrozenRows(1); sh.setColumnWidth(1, 620); sh.setColumnWidth(2, 80);
+    sh.getRange(2, 1, 2, 2).setValues([
+      ['🎾 PLĂȚILE SE FAC PÂNĂ PE DATA DE 10 A FIECĂREI LUNI! VĂ MULȚUMIM!', 'DA'],
+      ['🎁 OFERTĂ 1+1: ADU UN PRIETEN ȘI AI LUNA URMĂTOARE 100% GRATUITĂ!', 'DA']
+    ]);
+    sh.getRange(2, 2, 200, 1).setDataValidation(
+      SpreadsheetApp.newDataValidation().requireValueInList(['DA', 'NU'], true).build());
+  }
+  return sh;
+}
+
+/** Textul benzii derulante. Șir gol => portalul păstrează textul său implicit. */
+function getAnunturi_() {
+  try {
+    var hit = cacheGetObj_('ANUNT');
+    if (hit) return hit.t;
+    var sh = anunturiSheet_(), last = sh.getLastRow();
+    var txt = '';
+    if (last >= 2) {
+      var vals = sh.getRange(2, 1, last - 1, 2).getValues(), parts = [];
+      vals.forEach(function (v) {
+        var t = String(v[0] || '').trim();
+        if (t && String(v[1] || 'DA').toUpperCase() !== 'NU') parts.push(t);
+      });
+      if (parts.length) {
+        var one = parts.join(' &nbsp;&nbsp;&nbsp; ⭐ &nbsp;&nbsp;&nbsp; ') + ' &nbsp;&nbsp;&nbsp; ⭐ &nbsp;&nbsp;&nbsp; ';
+        txt = one + one + one;
+      }
+    }
+    cachePutObj_('ANUNT', { t: txt }, 600);
+    return txt;
+  } catch (err) { return ''; }
+}
+
+/* ─────────── 7.5 Memento de plată prin email ─────────── */
+
+function emailSendReminder() { processEmailNotifications('reminder'); }
+function emailSendMonthly()  { processEmailNotifications('monthly'); }
+
+function processEmailNotifications(type) {
+  var ui = SpreadsheetApp.getUi();
+  if (!CFG.EMAIL_ON) ui.alert('🛠️ MOD TESTARE ACTIV 🛠️\n\nMesajele NU pleacă real.\nVei primi o previzualizare pe ecran.\n\nPentru trimitere reală: CFG.EMAIL_ON = true');
+
+  var rap = emailRun_(type, getWorkingMonth_());
+  if (rap.eroare) { ui.alert(rap.eroare); return; }
+
+  var detaliuLipsa = rap.lipsa.length
+    ? '\n\n── Fără răspuns la formular (' + rap.faraEmail + ') ──\n' + rap.lipsa.join('\n') +
+      (rap.faraEmail > rap.lipsa.length ? '\n… și încă ' + (rap.faraEmail - rap.lipsa.length) : '') +
+      '\n\nAcești părinți nu au completat încă formularul, sau numele sportivului\n' +
+      'din formular diferă de cel din registrul antrenorilor.'
+    : '';
+
+  if (!CFG.EMAIL_ON) {
+    ui.alert('PREVIZUALIZARE — ' + rap.eligibili + ' destinatari' + detaliuLipsa + '\n\n' +
+             (rap.preview.join('\n\n---\n') || '(niciun destinatar eligibil)'));
+    return;
+  }
+
+  var cap = (rap.trimise === rap.eligibili)
+    ? '✅ Emailuri trimise: ' + rap.trimise
+    : '⚠️ Trimise ' + rap.trimise + ' din ' + rap.eligibili + ' destinatari eligibili';
+
+  var detaliuEsec = '';
+  if (rap.esecuri.length) {
+    detaliuEsec = '\n\n── Eșuate (' + rap.esecuri.length + ') ──\n' + rap.esecuri.slice(0, 5).join('\n') +
+      '\n\nCauze frecvente:\n' +
+      '• autorizarea pentru trimiterea de emailuri nu a fost acordată\n' +
+      '  → rulează o dată „✉️ Verifică trimiterea de email" din meniu;\n' +
+      '• cota zilnică de emailuri a fost depășită (vezi aceeași verificare);\n' +
+      '• adresa din formular este greșită.';
+  }
+
+  ui.alert(cap + detaliuEsec + detaliuLipsa);
+}
+
+/**
+ * Motorul de trimitere, fără interfață — poate rula și dintr-un declanșator automat,
+ * unde SpreadsheetApp.getUi() nu este disponibil.
+ * type: 'monthly' | 'reminder' | 'reminder_final'
+ */
+function emailRun_(type, lunaLucru) {
+  var rap = { eligibili: 0, trimise: 0, faraEmail: 0, preview: [], lipsa: [], esecuri: [], eroare: '' };
+
+  var idx = formIndex_();
+  if (!idx) {
+    rap.eroare = 'Nu am găsit adrese de email.\n\nAdaugă în Google Form un câmp „Email" și unul „Telefon",\napoi reîncearcă. Coloanele sunt detectate automat după antet.';
+    return rap;
+  }
+
+  var snap = getSnapshot_(false);
+  if (!snap) { rap.eroare = 'Nu am putut citi registrul brut.'; return rap; }
+
+  var curLuna = null;
+  snap.months.forEach(function (m) { if (m.name === snap.curSheet) curLuna = m; });
+  if (!curLuna) { rap.eroare = 'Luna curentă nu a fost găsită în registrul brut.'; return rap; }
+
+  var monthText = monthLabel_(lunaLucru || getWorkingMonth_());
+
+  curLuna.ath.forEach(function (a) {
+    if ((type === 'reminder' || type === 'reminder_final') && a.plata === 'Achitat') return;
+
+    // Se încearcă TOATE numerele din celula CONTACT, apoi numele sportivului.
+    var rec = formLookup_(a.ph, a.numeComplet);
+    var email = (rec && rec.email) ? rec.email : '';
+    if (!email || email.indexOf('@') < 0) {
+      rap.faraEmail++;
+      if (rap.lipsa.length < 12) rap.lipsa.push('• ' + a.numeComplet + (a.ph && a.ph.length ? '  (' + a.ph[0] + ')' : ''));
+      return;
+    }
+
+    var msg = emailCompune_(type, a, curLuna, monthText);
+    rap.eligibili++;
+
+    if (CFG.EMAIL_ON) {
+      // Orice eșec este raportat, nu înghițit: altfel vezi „trimise: 0" fără niciun motiv.
+      try {
+        MailApp.sendEmail({ to: email, subject: msg.subiect, body: msg.text, htmlBody: msg.html, name: CFG.CLUB });
+        rap.trimise++;
+      } catch (err) {
+        rap.esecuri.push('• ' + email + '  (' + a.numeComplet + ')\n   ↳ ' + (err && err.message ? err.message : String(err)));
+      }
+    } else {
+      if (rap.preview.length < 3) rap.preview.push('Către: ' + email + '  (' + a.numeComplet + ')\n' + msg.subiect);
+    }
+  });
+
+  return rap;
+}
+
+/* ─────────── 7.5.1 Programare automată ─────────── */
+
+function ziSimpla_(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+function adaugaZile_(d, n) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); }
+
+/**
+ * Calendarul mementourilor pentru o lună:
+ *  • salutul pleacă cu CFG.EMAIL_ZILE_INAINTE zile înainte de prima zi de antrenament;
+ *  • mementoul de plată pleacă în ultima zi de antrenament a PRIMEI săptămâni.
+ */
+function emailPlanLuna_(luna) {
+  var r = gridRange_(luna, [1, 2, 3, 4, 5]);
+  if (!r) return null;
+
+  var zile = monthGridDays_(luna, [1, 2, 3, 4, 5]);
+  if (!zile.length) return null;
+
+  var primaZi = zile[0];
+  var sfarsitSapt1 = adaugaZile_(r.start, 6);
+  var ultimaDinSapt1 = primaZi;
+  zile.forEach(function (z) { if (z <= sfarsitSapt1 && z > ultimaDinSapt1) ultimaDinSapt1 = z; });
+
+  return {
+    primaZi: primaZi,
+    ziSalut: adaugaZile_(primaZi, -CFG.EMAIL_ZILE_INAINTE),
+    ziMemento: ultimaDinSapt1
+  };
+}
+
+/** Rulează zilnic. Trimite doar în zilele planificate și doar o dată pe lună. */
+function emailAutoWorker() {
+  try {
+    if (!CFG.EMAIL_AUTO) return;
+    var luna = getWorkingMonth_();
+    var plan = emailPlanLuna_(luna);
+    if (!plan) return;
+
+    var azi = ziSimpla_(new Date());
+    var tag = luna.getFullYear() + '-' + pad2_(luna.getMonth() + 1);
+
+    if (azi.getTime() === plan.ziSalut.getTime())   emailAutoTrimite_('monthly', luna, 'SALUT_' + tag);
+    if (azi.getTime() === plan.ziMemento.getTime()) emailAutoTrimite_('reminder_final', luna, 'PLATA_' + tag);
+  } catch (err) { console.error(err); }
+}
+
+function emailAutoTrimite_(type, luna, cheie) {
+  var p = props_();
+  if (p.getProperty('AUTOSENT_' + cheie)) return;        // deja trimis pentru luna asta
+  var rap = emailRun_(type, luna);
+  p.setProperty('AUTOSENT_' + cheie, new Date().toISOString());
+  p.setProperty('EMAIL_ULTIMA_RULARE',
+    new Date().toLocaleString() + ' · ' + type + ' · trimise ' + rap.trimise + '/' + rap.eligibili +
+    (rap.esecuri.length ? ' · eșecuri ' + rap.esecuri.length : '') + (rap.eroare ? ' · ' + rap.eroare : ''));
+}
+
+function installEmailAuto() {
+  var ui = SpreadsheetApp.getUi();
+  removeEmailAuto(true);
+  ScriptApp.newTrigger('emailAutoWorker').timeBased().everyDays(1).atHour(9).create();
+  var plan = emailPlanLuna_(getWorkingMonth_());
+  ui.alert('✅ Trimitere automată activată.\n\n' +
+    (plan ? ('Pentru ' + monthLabel_(getWorkingMonth_()) + ':\n' +
+      '• Salut lună nouă: ' + plan.ziSalut.getDate() + ' ' + LUNI_RO[plan.ziSalut.getMonth()].toLowerCase() +
+      '  (cu ' + CFG.EMAIL_ZILE_INAINTE + ' zile înainte de primul antrenament, ' +
+      plan.primaZi.getDate() + ' ' + LUNI_RO[plan.primaZi.getMonth()].toLowerCase() + ')\n' +
+      '• Memento de plată: ' + plan.ziMemento.getDate() + ' ' + LUNI_RO[plan.ziMemento.getMonth()].toLowerCase() +
+      '  (ultima zi a primei săptămâni)\n\n') : '') +
+    (CFG.EMAIL_ON ? 'CFG.EMAIL_ON = true → mesajele pleacă REAL.'
+                  : '⚠️ CFG.EMAIL_ON = false → nu va pleca nimic.\nPune-l pe true când ești gata.'));
+}
+
+function removeEmailAuto(silent) {
+  var t = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < t.length; i++) {
+    if (t[i].getHandlerFunction() === 'emailAutoWorker') ScriptApp.deleteTrigger(t[i]);
+  }
+  if (silent !== true) SpreadsheetApp.getUi().alert('❌ Trimiterea automată a fost oprită.');
+}
+
+function emailPlanArata() {
+  var ui = SpreadsheetApp.getUi(), luna = getWorkingMonth_(), plan = emailPlanLuna_(luna);
+  if (!plan) { ui.alert('Nu am putut calcula planul pentru ' + monthLabel_(luna) + '.'); return; }
+  var f = function (d) { return ZI_RO_[(d.getDay() === 0) ? 7 : d.getDay()] + ', ' + d.getDate() + ' ' + LUNI_RO[d.getMonth()].toLowerCase(); };
+  var activ = ScriptApp.getProjectTriggers().filter(function (t) { return t.getHandlerFunction() === 'emailAutoWorker'; }).length > 0;
+  ui.alert('📅 PLAN — ' + monthLabel_(luna) + '\n\n' +
+    'Săptămâni în grilă: ' + numarSaptamani_(luna) + '\n' +
+    'Primul antrenament: ' + f(plan.primaZi) + '\n\n' +
+    '✉️ Salut lună nouă: ' + f(plan.ziSalut) + '\n' +
+    '✉️ Memento de plată: ' + f(plan.ziMemento) + '\n\n' +
+    'Trimitere automată: ' + (activ ? 'ACTIVĂ' : 'oprită') + '\n' +
+    'Trimitere reală: ' + (CFG.EMAIL_ON ? 'DA' : 'nu (mod testare)') + '\n\n' +
+    'Ultima rulare automată:\n' + (props_().getProperty('EMAIL_ULTIMA_RULARE') || '(niciuna)'));
+}
+
+/**
+ * Verificare rapidă: cotă rămasă, autorizare și un email de test către proprietar.
+ * Prima rulare declanșează dialogul de autorizare pentru MailApp, dacă lipsește.
+ */
+function emailVerifica() {
+  var ui = SpreadsheetApp.getUi(), out = [];
+  var cota = -1;
+  try { cota = MailApp.getRemainingDailyQuota(); out.push('Cotă rămasă azi: ' + cota + ' emailuri'); }
+  catch (err) { out.push('Cotă: NU POATE FI CITITĂ — ' + (err && err.message ? err.message : err)); }
+
+  var adresa = '';
+  try { adresa = Session.getEffectiveUser().getEmail(); } catch (err) {}
+  out.push('Cont care trimite: ' + (adresa || '(necunoscut)'));
+  out.push('CFG.EMAIL_ON: ' + (CFG.EMAIL_ON ? 'true (trimitere reală)' : 'false (mod testare)'));
+
+  if (cota === 0) {
+    ui.alert('🩺 VERIFICARE EMAIL\n\n' + out.join('\n') +
+             '\n\n⚠️ Cota zilnică este epuizată. Se reface în 24 de ore.');
+    return;
+  }
+
+  if (!adresa) { ui.alert('🩺 VERIFICARE EMAIL\n\n' + out.join('\n')); return; }
+
+  var r = ui.alert('Trimit un email de test către ' + adresa + '?', ui.ButtonSet.YES_NO);
+  if (r !== ui.Button.YES) { ui.alert('🩺 VERIFICARE EMAIL\n\n' + out.join('\n')); return; }
+
+  try {
+    MailApp.sendEmail(adresa, 'Test — Portal Club Tenis Masters',
+      'Dacă citești acest mesaj, trimiterea de emailuri funcționează corect.\n\n' + CFG.CLUB);
+    out.push('\n✅ Email de test trimis cu succes.');
+  } catch (err) {
+    out.push('\n❌ Trimiterea a eșuat: ' + (err && err.message ? err.message : err));
+  }
+  ui.alert('🩺 VERIFICARE EMAIL\n\n' + out.join('\n'));
+}
+
+/* ─────────── 7.6 Mentenanță Faza 4 ─────────── */
+
+function portalCereriDeschide() {
+  var sh = cereriSheet_();
+  try { sh.showSheet(); } catch (err) {}
+  SpreadsheetApp.getActiveSpreadsheet().setActiveSheet(sh);
+  var n = Math.max(0, sh.getLastRow() - 1);
+  SpreadsheetApp.getActiveSpreadsheet().toast('Cereri înregistrate: ' + n, 'CERERI PĂRINȚI', 5);
+}
+
+function portalAnunturiDeschide() {
+  var sh = anunturiSheet_();
+  try { sh.showSheet(); } catch (err) {}
+  SpreadsheetApp.getActiveSpreadsheet().setActiveSheet(sh);
+  cacheDrop_('ANUNT');
+  SpreadsheetApp.getActiveSpreadsheet().toast('Modifică textul, apoi salvează. Portalul preia în max. 10 minute.', 'ANUNȚURI', 6);
+}
+
+/* ═══════════════════════════ 8. ȘABLON DE EMAIL ═══════════════════════════ */
+/*  HTML pe tabele, cu stiluri inline — singura formă care se afișează corect
+ *  în Gmail, Outlook, Apple Mail și pe telefon. Fiecare email are și o
+ *  variantă text simplu, pentru clienții care nu afișează HTML.              */
+
+var ZI_RO_ = ['', 'Luni', 'Marți', 'Miercuri', 'Joi', 'Vineri', 'Sâmbătă', 'Duminică'];
+
+/** Zilele de antrenament ale unui sportiv, ca numere (1 = luni). */
+function zileFixeWeekdays_(zileFixe, g) {
+  // „L-V" (formă prescurtată, cu o singură literă la fiecare capăt) înseamnă
+  // TOT intervalul, nu două zile. Se verifică înainte de interpretarea ca listă,
+  // fiindcă în restul datelor liniuța separă zile („LUNI – MARȚI – MIERCURI").
+  var fara = stripDia_(zileFixe).replace(/\d{1,2}[.:H]\d{2}\s*[-–]\s*\d{1,2}[.:H]\d{2}/g, '').trim();
+  var rng = fara.match(/^([LMJVSD])\s*[-–]\s*([LMJVSD])$/);
+  if (rng) {
+    var CAP = { 'L': 1, 'J': 4, 'V': 5, 'S': 6, 'D': 7 };
+    var a = CAP[rng[1]], b = CAP[rng[2]];
+    if (a && b && a < b) { var o = []; for (var i = a; i <= b; i++) o.push(i); return o; }
+  }
+
+  var eticheta = formatZileFixe_(zileFixe);
+  var out = [];
+  if (eticheta) {
+    eticheta.split(',').forEach(function (p) {
+      var k = ZI_RO_.indexOf(p.trim());
+      if (k > 0 && out.indexOf(k) === -1) out.push(k);
+    });
+  }
+  if (!out.length && g && g.days) out = g.days.slice();
+  out.sort(function (x, y) { return x - y; });
+  return out;
+}
+
+/** Următorul antrenament, începând de azi. Caută maximum 2 luni înainte. */
+function urmatorulAntrenament_(a, g, dela) {
+  var wd = zileFixeWeekdays_(a.zileFixe, g);
+  if (!wd.length) return null;
+  var ora = extractOra_(a.zileFixe, '') || (g ? g.time : '');
+  var baza = new Date(dela.getFullYear(), dela.getMonth(), dela.getDate());
+  for (var i = 0; i <= 62; i++) {
+    var x = new Date(baza.getFullYear(), baza.getMonth(), baza.getDate() + i);
+    var w = (x.getDay() === 0) ? 7 : x.getDay();
+    if (wd.indexOf(w) > -1) {
+      return { zi: ZI_RO_[w], data: x.getDate() + ' ' + LUNI_RO[x.getMonth()].toLowerCase(), ora: ora, peste: i };
+    }
+  }
+  return null;
+}
+
+function eHtml_(v) {
+  return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/** Casetă cu relief: bară de accent în stânga și muchie întunecată jos. */
+function eBox_(accent, titlu, continut) {
+  return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="mx-card" style="margin:0 0 16px 0;border-collapse:separate;">' +
+    '<tr>' +
+      '<td width="5" bgcolor="' + accent + '" style="background:' + accent + ';width:5px;border-radius:10px 0 0 10px;">&nbsp;</td>' +
+      '<td bgcolor="#F6F8FA" style="background:#F6F8FA;background-image:linear-gradient(180deg,#FFFFFF 0%,#F2F5F8 100%);padding:16px 18px;border-radius:0 10px 0 0;border-top:1px solid #FFFFFF;">' +
+        (titlu ? '<div style="font-size:11px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:' + accent + ';margin-bottom:7px;">' + titlu + '</div>' : '') +
+        '<div style="font-size:15px;color:#111111;line-height:1.55;">' + continut + '</div>' +
+      '</td>' +
+    '</tr>' +
+    '<tr>' +
+      '<td bgcolor="' + eUmbra_(accent) + '" style="background:' + eUmbra_(accent) + ';height:3px;font-size:0;line-height:0;border-radius:0 0 0 10px;">&nbsp;</td>' +
+      '<td bgcolor="#D8DEE4" style="background:#D8DEE4;height:3px;font-size:0;line-height:0;border-radius:0 0 10px 0;">&nbsp;</td>' +
+    '</tr></table>';
+}
+
+/** Varianta întunecată a unei culori — muchia care dă senzația de relief. */
+function eUmbra_(hex) {
+  var h = String(hex).replace('#', '');
+  if (h.length !== 6) return '#888888';
+  var out = '#';
+  for (var i = 0; i < 3; i++) {
+    var v = Math.round(parseInt(h.substr(i * 2, 2), 16) * 0.62);
+    out += (v < 16 ? '0' : '') + v.toString(16);
+  }
+  return out;
+}
+
+/** Bară de progres pe tabele — se afișează corect inclusiv în Outlook. */
+function eProgress_(procent, culoare) {
+  var p = Math.max(0, Math.min(100, Math.round(procent)));
+  var gol = 100 - p;
+  return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-radius:7px;overflow:hidden;background:#E3E8ED;"><tr>' +
+    (p > 0 ? '<td width="' + p + '%" bgcolor="' + culoare + '" style="background:' + culoare + ';height:12px;font-size:0;line-height:0;">&nbsp;</td>' : '') +
+    (gol > 0 ? '<td width="' + gol + '%" bgcolor="#E3E8ED" style="background:#E3E8ED;height:12px;font-size:0;line-height:0;">&nbsp;</td>' : '') +
+    '</tr></table>';
+}
+
+/** Pastilă cu cifră mare — un „tile" de statistică. */
+function eTile_(valoare, eticheta, culoare) {
+  return '<td align="center" width="33%" style="padding:6px 4px;">' +
+    '<div style="font-size:26px;font-weight:bold;color:' + culoare + ';line-height:1.1;">' + valoare + '</div>' +
+    '<div style="font-size:10px;color:#7A828A;text-transform:uppercase;letter-spacing:1px;margin-top:3px;">' + eticheta + '</div></td>';
+}
+
+/**
+ * Compune emailul pentru un sportiv.
+ * type: 'monthly' (salut de lună nouă) | 'reminder' (memento) | 'reminder_final'
+ * (finalul primei săptămâni, neachitat — conține avertizarea privind participarea).
+ */
+function emailCompune_(type, a, luna, monthText) {
+  var g = matchGroup_(a.cat) || { cat: a.cat, time: '' };
+  var azi = new Date();
+  var urm = urmatorulAntrenament_(a, g, azi);
+  var wd = zileFixeWeekdays_(a.zileFixe, g);
+  var lunaStart = new Date(luna.y, luna.m, 1);
+  var sedinteLuna = wd.length ? monthDays_(lunaStart, wd).length : 0;
+  var final = (type === 'reminder_final');
+
+  var ist = buildIstoric_(a, luna.y, luna.m, azi);
+  var prez = 0, abs = 0, rec = 0, elig = 0;
+  ist.forEach(function (z) {
+    if (z.cod === 'P') prez++;
+    else if (z.cod === 'AB') abs++;
+    else if (z.cod === 'R') rec++;
+    else if (z.cod === 'E' || z.cod === 'B' || z.cod === 'AC') elig++;
+  });
+  var recDisp = Math.max(0, elig - rec);
+  var efectuate = prez + rec;
+  var procent = sedinteLuna ? Math.min(100, Math.round(efectuate / sedinteLuna * 100)) : 0;
+
+  var tarif = String(a.tarif || '').trim();
+  var tarifText = tarif ? (/lei/i.test(tarif) ? tarif : tarif + ' lei') : '';
+  var achitat = (a.plata === 'Achitat');
+  var scadenta = CFG.ZI_SCADENTA + ' ' + LUNI_RO[luna.m].toLowerCase();
+  var program = programFixLabel_(a, g) || ((g.cat ? g.cat + ' ' : '') + (g.time || ''));
+  var portal = portalAppUrl_() || CFG.PUBLIC_LINK;
+  var refPlata = a.numeComplet + ' – luna ' + String(monthText).toLowerCase();
+
+  var subiect = final
+    ? ('⚠️ Abonament neachitat — ' + a.prenume + ' | ' + CFG.CLUB)
+    : (type === 'reminder'
+        ? ('Abonament ' + monthText + ' — ' + a.prenume + ' | ' + CFG.CLUB)
+        : (a.prenume + ' — programul lunii ' + monthText + ' | ' + CFG.CLUB));
+
+  var h = [];
+  h.push('<!DOCTYPE html><html><head><meta charset="utf-8">');
+  h.push('<meta name="viewport" content="width=device-width,initial-scale=1">');
+  /* Animațiile sunt strict decorative. Clienții care le ignoră (Gmail web, Outlook)
+     afișează exact același conținut — totul esențial este în stiluri inline. */
+  h.push('<style>' +
+    '@keyframes mxUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}' +
+    '@keyframes mxPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.035)}}' +
+    '@keyframes mxGrow{from{width:0}}' +
+    '.mx-card{animation:mxUp .5s ease-out both}' +
+    '.mx-card:nth-of-type(2){animation-delay:.07s}.mx-card:nth-of-type(3){animation-delay:.14s}' +
+    '.mx-cta{animation:mxPulse 2.4s ease-in-out infinite}' +
+    '.mx-bar td:first-child{animation:mxGrow 1.1s ease-out}' +
+    '@media (prefers-reduced-motion:reduce){.mx-card,.mx-cta,.mx-bar td:first-child{animation:none!important}}' +
+    '@media only screen and (max-width:620px){.mx-pad{padding:20px 16px!important}.mx-h1{font-size:19px!important}}' +
+    '</style></head>');
+  h.push('<body style="margin:0;padding:0;background:#E7EBEF;">');
+  h.push('<div style="display:none;max-height:0;overflow:hidden;opacity:0;">' +
+    eHtml_(final ? 'Abonamentul nu figurează achitat — participarea se suspendă.'
+                 : (type === 'reminder' ? 'Detalii de plată pentru ' + monthText
+                                        : 'Programul lui ' + a.prenume + ' pentru ' + monthText)) + '</div>');
+  h.push('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#E7EBEF;padding:22px 10px;"><tr><td align="center">');
+  h.push('<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#FFFFFF;border-radius:16px;overflow:hidden;font-family:Helvetica,Arial,sans-serif;">');
+
+  h.push('<tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>' +
+    '<td height="7" bgcolor="' + C.cyan + '" style="height:7px;font-size:0;line-height:0;">&nbsp;</td>' +
+    '<td height="7" bgcolor="' + C.magenta + '" style="height:7px;font-size:0;line-height:0;">&nbsp;</td>' +
+    '<td height="7" bgcolor="' + C.orange + '" style="height:7px;font-size:0;line-height:0;">&nbsp;</td>' +
+    '<td height="7" bgcolor="' + C.lime + '" style="height:7px;font-size:0;line-height:0;">&nbsp;</td>' +
+    '</tr></table></td></tr>');
+
+  h.push('<tr><td bgcolor="#111111" style="background:#111111;background-image:linear-gradient(160deg,#2B2B2B 0%,#111111 60%);padding:26px 28px;" align="center">' +
+    (CFG.LOGO_URL ? '<img src="' + eHtml_(CFG.LOGO_URL) + '" width="66" alt="" style="display:block;margin:0 auto 12px auto;border:0;">' : '') +
+    '<div style="color:#FFFFFF;font-size:20px;font-weight:bold;letter-spacing:2.5px;">' + eHtml_(CFG.CLUB) + '</div>' +
+    '<div style="color:' + C.lime + ';font-size:10px;letter-spacing:2px;text-transform:uppercase;margin-top:5px;">' + eHtml_(CFG.SUB) + '</div>' +
+    '</td></tr>');
+  h.push('<tr><td height="3" bgcolor="#000000" style="height:3px;font-size:0;line-height:0;">&nbsp;</td></tr>');
+
+  h.push('<tr><td class="mx-pad" style="padding:28px;">');
+  h.push('<p style="margin:0 0 4px 0;font-size:14px;color:#6B737B;">Bună ziua!</p>');
+  h.push('<h1 class="mx-h1" style="margin:0 0 20px 0;font-size:23px;color:#111111;line-height:1.3;font-weight:bold;">' +
+    (final ? 'Abonamentul lui ' + eHtml_(a.prenume) + ' nu figurează achitat'
+           : (type === 'reminder' ? 'Abonamentul lui ' + eHtml_(a.prenume) + ' pentru ' + eHtml_(monthText)
+                                  : 'O lună nouă începe pentru ' + eHtml_(a.prenume) + ' 🎾')) + '</h1>');
+
+  if (final) {
+    h.push('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px 0;border-collapse:separate;"><tr>' +
+      '<td bgcolor="#FDECEA" style="background:#FDECEA;border:1px solid #F5C6C2;border-left:5px solid #C62828;border-radius:10px;padding:15px 17px;">' +
+      '<div style="font-size:12px;font-weight:bold;color:#C62828;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;">Prima săptămână s-a încheiat</div>' +
+      '<div style="font-size:14px;color:#5F2120;line-height:1.55;">Abonamentul pentru <strong>' + eHtml_(monthText) +
+      '</strong> nu figurează achitat. Conform regulamentului, <strong>participarea la antrenamente se suspendă</strong> până la regularizarea plății.' +
+      '<br><br>Dacă ați achitat deja, vă rugăm să ne trimiteți dovada — actualizăm imediat.</div>' +
+      '</td></tr></table>');
+  }
+
+  h.push(eBox_(C.cyan, 'Sportiv',
+    '<strong style="font-size:17px;">' + eHtml_(a.numeComplet) + '</strong><br>' +
+    '<span style="color:#5A6169;">Grupa <strong style="color:#111;">' + eHtml_(g.cat || '—') + '</strong>' +
+    (a.coach ? ' · Antrenor <strong style="color:#111;">' + eHtml_(a.coach) + '</strong>' : '') + '</span><br>' +
+    '<span style="color:#5A6169;">Program: <strong style="color:#111;">' + eHtml_(program || '—') + '</strong></span>' +
+    (sedinteLuna ? '<br><span style="color:#5A6169;"><strong style="color:#111;">' + sedinteLuna + '</strong> ședințe programate în ' + eHtml_(String(monthText).split(' ')[0].toLowerCase()) + '</span>' : '')));
+
+  if (urm) {
+    var cand = (urm.peste === 0) ? 'Astăzi' : (urm.peste === 1 ? 'Mâine' : urm.zi);
+    h.push(eBox_(C.lime, 'Următorul antrenament',
+      '<strong style="font-size:19px;">' + eHtml_(cand) + ', ' + eHtml_(urm.data) + '</strong>' +
+      (urm.ora ? '<br><span style="color:#5A6169;">Ora <strong style="color:#111;">' + eHtml_(urm.ora) + '</strong></span>' : '')));
+  }
+
+  if (type === 'reminder' || final || !achitat) {
+    var plata = '';
+    if (tarifText) plata += '<div style="font-size:30px;font-weight:bold;color:' + C.magenta + ';line-height:1.1;margin-bottom:4px;">' + eHtml_(tarifText) + '</div>';
+    plata += '<span style="color:#5A6169;">Termen de plată: <strong style="color:#111;">' + eHtml_(scadenta) + '</strong></span>';
+    plata += '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:14px;font-size:13px;color:#333;">' +
+      '<tr><td style="padding:3px 0;color:#7A828A;">Beneficiar</td><td style="padding:3px 0;" align="right"><strong>' + eHtml_(CFG.BANK.TITULAR) + '</strong></td></tr>' +
+      '<tr><td style="padding:3px 0;color:#7A828A;">IBAN</td><td style="padding:3px 0;" align="right"><strong style="color:' + C.magenta + ';">' + eHtml_(CFG.BANK.IBAN) + '</strong></td></tr>' +
+      '<tr><td style="padding:3px 0;color:#7A828A;">Banca</td><td style="padding:3px 0;" align="right">' + eHtml_(CFG.BANK.BANCA) + '</td></tr>' +
+      '<tr><td style="padding:3px 0;color:#7A828A;">CIF</td><td style="padding:3px 0;" align="right">' + eHtml_(CFG.BANK.CUI) + '</td></tr>' +
+      '</table>' +
+      '<div style="margin-top:12px;padding:11px 13px;background:#FFF6E6;border-radius:8px;border:1px solid #FFE3B0;font-size:13px;color:#7A4B00;">' +
+      'La <strong>detalii plată</strong> scrieți exact:<br><strong style="color:#111;">' + eHtml_(refPlata) + '</strong></div>' +
+      (tarifText ? '' : '<div style="margin-top:9px;font-size:12px;color:#7A828A;">Suma exactă vă este comunicată de antrenor.</div>');
+    h.push(eBox_(final ? '#C62828' : C.magenta, 'De achitat', plata));
+  } else {
+    h.push(eBox_('#0B6B2E', 'Abonament', '✅ <strong>Achitat</strong> pentru ' + eHtml_(monthText) +
+      (a.dataPlata ? ' <span style="color:#5A6169;">(' + eHtml_(a.dataPlata) + ')</span>' : '')));
+  }
+
+  if (prez + abs + rec > 0) {
+    h.push(eBox_(C.orange, 'Situația din ' + eHtml_(monthText),
+      '<table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>' +
+      eTile_(prez, 'Prezențe', '#0B6B2E') + eTile_(abs, 'Absențe', '#B3261E') + eTile_(rec, 'Recuperate', C.cyan) +
+      '</tr></table>' +
+      (sedinteLuna ? '<div style="margin-top:12px;">' +
+        '<div style="font-size:12px;color:#5A6169;margin-bottom:5px;">Efectuate <strong style="color:#111;">' + efectuate + '</strong> din <strong style="color:#111;">' + sedinteLuna + '</strong> ședințe <span style="float:right;color:#0B6B2E;font-weight:bold;">' + procent + '%</span></div>' +
+        '<div class="mx-bar">' + eProgress_(procent, C.lime) + '</div></div>' : '') +
+      (recDisp > 0 ? '<div style="margin-top:12px;padding:10px 13px;background:#FFF1E0;border-radius:8px;font-size:13px;color:#8A4B00;">🪃 Aveți <strong>' + recDisp + '</strong> ' + (recDisp === 1 ? 'ședință disponibilă' : 'ședințe disponibile') + ' pentru recuperare.</div>' : '')));
+  }
+
+  if (String(a.infoInterne || '').trim()) {
+    h.push(eBox_(C.orange, 'Mesaj de la antrenor', '<em style="color:#3A4048;">„' + eHtml_(a.infoInterne) + '"</em>'));
+  }
+
+  h.push('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0 8px 0;"><tr><td align="center">' +
+    '<table role="presentation" cellpadding="0" cellspacing="0" class="mx-cta" style="border-collapse:separate;"><tr>' +
+    '<td bgcolor="' + C.cyan + '" style="background:' + C.cyan + ';background-image:linear-gradient(180deg,#25C0F5 0%,' + C.cyan + ' 100%);border-radius:11px;border-bottom:4px solid ' + eUmbra_(C.cyan) + ';">' +
+    '<a href="' + eHtml_(portal) + '" style="display:inline-block;color:#FFFFFF;text-decoration:none;font-size:15px;font-weight:bold;padding:15px 34px;letter-spacing:.4px;">Vezi portalul părinților</a>' +
+    '</td></tr></table></td></tr></table>');
+  h.push('<p style="margin:0;text-align:center;font-size:12px;color:#8A9098;">Prezențe la zi, recuperări și anunțarea absențelor.</p>');
+  h.push('</td></tr>');
+
+  h.push('<tr><td bgcolor="#111111" style="background:#111111;padding:20px 28px;" align="center">' +
+    '<div style="color:#FFFFFF;font-size:13px;font-weight:bold;letter-spacing:1px;">' + eHtml_(CFG.CLUB) + '</div>' +
+    '<div style="color:#A8AEB4;font-size:12px;margin-top:6px;">' + eHtml_(CFG.PHONE) + ' · ' + eHtml_(CFG.EMAIL) + '</div>' +
+    '<div style="color:#5F666C;font-size:11px;margin-top:11px;line-height:1.5;">Primiți acest mesaj pentru că sunteți părintele unui sportiv înscris.<br>Pentru dezabonare, răspundeți la acest email.</div>' +
+    '</td></tr>');
+  h.push('</table></td></tr></table></body></html>');
+
+  var t = [];
+  t.push('Bună ziua!');
+  t.push('');
+  t.push(final ? 'ABONAMENTUL LUI ' + String(a.prenume).toUpperCase() + ' NU FIGUREAZĂ ACHITAT.'
+       : (type === 'reminder' ? 'Abonamentul lui ' + a.prenume + ' pentru luna ' + monthText + '.'
+                              : 'O nouă lună de antrenamente începe pentru ' + a.prenume + '.'));
+  if (final) {
+    t.push('');
+    t.push('Prima săptămână s-a încheiat, iar plata pentru ' + monthText + ' nu figurează efectuată.');
+    t.push('Conform regulamentului, participarea la antrenamente se suspendă până la regularizare.');
+    t.push('Dacă ați achitat deja, trimiteți-ne dovada — actualizăm imediat.');
+  }
+  t.push('');
+  t.push('SPORTIV: ' + a.numeComplet);
+  t.push('Grupa: ' + (g.cat || '—') + (a.coach ? '  ·  Antrenor: ' + a.coach : ''));
+  t.push('Program: ' + (program || '—'));
+  if (sedinteLuna) t.push('Ședințe programate în această lună: ' + sedinteLuna);
+  if (urm) t.push('Următorul antrenament: ' + urm.zi + ', ' + urm.data + (urm.ora ? ', ora ' + urm.ora : ''));
+  t.push('');
+  if (type === 'reminder' || final || !achitat) {
+    t.push('DE ACHITAT' + (tarifText ? ': ' + tarifText : ''));
+    t.push('Termen: ' + scadenta);
+    t.push('Beneficiar: ' + CFG.BANK.TITULAR);
+    t.push('IBAN: ' + CFG.BANK.IBAN + '  (' + CFG.BANK.BANCA + ')');
+    t.push('CIF: ' + CFG.BANK.CUI);
+    t.push('Detalii plată: ' + refPlata);
+  } else {
+    t.push('ABONAMENT: achitat pentru ' + monthText + (a.dataPlata ? ' (' + a.dataPlata + ')' : ''));
+  }
+  if (prez + abs + rec > 0) {
+    t.push('');
+    t.push('SITUAȚIA DIN ' + String(monthText).toUpperCase() + ': ' + prez + ' prezențe, ' + abs + ' absențe, ' + rec + ' recuperate.');
+    if (sedinteLuna) t.push('Efectuate ' + efectuate + ' din ' + sedinteLuna + ' ședințe (' + procent + '%).');
+    if (recDisp > 0) t.push('Aveți ' + recDisp + ' ședință/ședințe disponibile pentru recuperare.');
+  }
+  if (String(a.infoInterne || '').trim()) { t.push(''); t.push('MESAJ DE LA ANTRENOR: ' + a.infoInterne); }
+  t.push('');
+  t.push('Portalul părinților: ' + portal);
+  t.push('');
+  t.push(CFG.CLUB + ' · ' + CFG.PHONE + ' · ' + CFG.EMAIL);
+
+  return { subiect: subiect, html: h.join(''), text: t.join('\n') };
+}
+
+/** Previzualizează șablonul pe un sportiv real, fără a trimite nimic. */
+function emailPreviewSablon() {
+  var ui = SpreadsheetApp.getUi();
+  var snap = getSnapshot_(false);
+  if (!snap) { ui.alert('Nu am putut citi registrul brut.'); return; }
+  var luna = null;
+  snap.months.forEach(function (m) { if (m.name === snap.curSheet) luna = m; });
+  if (!luna || !luna.ath.length) { ui.alert('Luna curentă nu conține sportivi.'); return; }
+
+  var r = ui.alert('Ce șablon previzualizezi?\n\nDA = memento de plată\nNU = salut de lună nouă', ui.ButtonSet.YES_NO_CANCEL);
+  if (r === ui.Button.CANCEL) return;
+  var type = (r === ui.Button.YES) ? 'reminder' : 'monthly';
+
+  // preferăm un sportiv neachitat pentru memento, ca să apară toate secțiunile
+  var a = luna.ath[0];
+  if (type === 'reminder') {
+    for (var i = 0; i < luna.ath.length; i++) { if (luna.ath[i].plata !== 'Achitat') { a = luna.ath[i]; break; } }
+  }
+
+  var msg = emailCompune_(type, a, luna, monthLabel_(getWorkingMonth_()));
+  var out = HtmlService.createHtmlOutput(msg.html).setWidth(680).setHeight(640);
+  ui.showModalDialog(out, 'Previzualizare — ' + msg.subiect);
+}
+
+/* ═══════════════════════════ 9. CALENDAR PE SĂPTĂMÂNI COMPLETE ═══════════════════════════ */
+/*  Grila acoperă SĂPTĂMÂNI ÎNTREGI (luni→duminică) care ating luna de lucru — 4 sau 5,
+ *  după lună. Astfel coloanele coincid cu registrul brut al antrenorilor, care include
+ *  și zilele de la granița lunii (ex. 31 august și 1-2 octombrie pentru septembrie).
+ *  monthDays_ rămâne neschimbată: e folosită acolo unde contează strict luna.        */
+
+/**
+ * Intervalul afișat: de la LUNEA săptămânii primei zile de antrenament din lună,
+ * până DUMINICA săptămânii ultimei zile de antrenament din lună.
+ * Ancorarea pe zilele de antrenament (nu pe 1 / ultima zi a lunii) evită
+ * săptămânile fără niciun antrenament — noiembrie 2026 începe duminică, iar
+ * săptămâna 26–30 octombrie nu ar conține nicio zi de noiembrie.
+ */
+function gridRange_(monthStart, weekdays) {
+  var inLuna = monthDays_(monthStart, weekdays);
+  if (!inLuna.length) return null;
+  var f = inLuna[0], l = inLuna[inLuna.length - 1];
+  var dowF = (f.getDay() === 0) ? 7 : f.getDay();
+  var dowL = (l.getDay() === 0) ? 7 : l.getDay();
+  return {
+    start: new Date(f.getFullYear(), f.getMonth(), f.getDate() - (dowF - 1)),
+    end:   new Date(l.getFullYear(), l.getMonth(), l.getDate() + (7 - dowL))
+  };
+}
+
+/** Luni a primei săptămâni de antrenament — reperul pentru mementourile automate. */
+function primaLuniGrila_(monthStart, weekdays) {
+  var r = gridRange_(monthStart, weekdays || [1, 2, 3, 4, 5]);
+  return r ? r.start : null;
+}
+
+function numarSaptamani_(monthStart, weekdays) {
+  var r = gridRange_(monthStart, weekdays || [1, 2, 3, 4, 5]);
+  if (!r) return 0;
+  // start = luni, end = duminică  =>  durata este un multiplu exact de 7 zile
+  return Math.round(((r.end - r.start) / 86400000 + 1) / 7);
+}
+
+/** Zilele de antrenament din săptămânile complete ale lunii. */
+function monthGridDays_(monthStart, weekdays) {
+  var r = gridRange_(monthStart, weekdays);
+  if (!r) return [];
+  var out = [], d = new Date(r.start.getFullYear(), r.start.getMonth(), r.start.getDate());
+  while (d <= r.end) {
+    var wd = (d.getDay() === 0) ? 7 : d.getDay();
+    if (weekdays.indexOf(wd) > -1) out.push(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
+    d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+  }
+  return out;
+}
+
+/** Linie verticală groasă între săptămâni — grila se citește ca un calendar. */
+function markWeekBounds_(sh, dates, firstDayCol, lastRow) {
+  if (!dates.length) return;
+  var luniIdx = [];
+  for (var i = 1; i < dates.length; i++) {
+    var prev = dates[i - 1], cur = dates[i];
+    var zilePeste = Math.round((cur - prev) / 86400000);
+    var wdPrev = (prev.getDay() === 0) ? 7 : prev.getDay();
+    var wdCur  = (cur.getDay()  === 0) ? 7 : cur.getDay();
+    if (wdCur < wdPrev || zilePeste >= 3) luniIdx.push(i);   // a început o săptămână nouă
+  }
+  luniIdx.forEach(function (i) {
+    sh.getRange(LAY.dayRow, firstDayCol + i, lastRow - LAY.dayRow + 1, 1)
+      .setBorder(null, true, null, null, null, null, C.ink, SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+  });
+}

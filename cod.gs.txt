@@ -33,6 +33,8 @@ var CFG = {
 
   /* ── Date pentru emailurile către părinți ── */
   ZI_SCADENTA: 10,               // ziua din lună până la care se achită abonamentul
+  EMAIL_AUTO: false,             // true = declanșatorul zilnic chiar trimite
+  EMAIL_ZILE_INAINTE: 2,         // cu câte zile înainte de primul antrenament pleacă salutul
   BANK: {
     TITULAR: 'Asociația Clubul Sportiv Tenis Masters',
     IBAN:    'RO38BRDE441SV00151174410',
@@ -105,6 +107,10 @@ function onOpen() {
       .addItem('✉️ EMAIL: salut lună nouă', 'emailSendMonthly')
       .addItem('✉️ Verifică trimiterea de email', 'emailVerifica')
       .addItem('👁️ Previzualizează șablonul de email', 'emailPreviewSablon')
+      .addSeparator()
+      .addItem('📅 Plan trimiteri automate', 'emailPlanArata')
+      .addItem('⏰ ACTIVEAZĂ trimiterea automată', 'installEmailAuto')
+      .addItem('⏹️ OPREȘTE trimiterea automată', 'removeEmailAuto')
     ).addToUi();
 }
 
@@ -360,10 +366,20 @@ function buildLegend_(ss) { var sh = ss.getSheetByName('LEGENDĂ') || ss.insertS
 
 function buildGroupSheet_(ss, g, m) { 
   var name = sheetName_(g), sh = ss.getSheetByName(name) || ss.insertSheet(name); var keep = harvestAthletes_(sh); sh.clear(); sh.clearConditionalFormatRules(); sh.setHiddenGridlines(true); 
-  var dates = monthDays_(m, g.days), nDays = dates.length; var firstDayCol = LAY.fixedCols + 1, statCol = firstDayCol + nDays, lastCol = statCol + STAT.length - 1, lastRow = LAY.firstData + CFG.ROWS_PER_GROUP - 1; 
-  paintDiagonalBands_(sh, 1, LAY.headerRows, 1, lastCol); bevelBlock_(sh, rng_(2, 2, LAY.headerRows - 1, 2), CFG.CLUB + '\n' + CFG.SUB, C.ink, C.white, 13); bevelBlock_(sh, rng_(2, 4, LAY.headerRows - 1, 2), CFG.PHONE + '\n' + CFG.EMAIL, C.white, C.ink, 10); bevelBlock_(sh, rng_(LAY.titleRow, 1, 1, LAY.fixedCols), g.cat + ' | L-V | ' + g.time, g.accent, g.accent === C.lime || g.accent === '#FFC107' ? C.ink : C.white, 12); sh.getRange(LAY.titleRow, LAY.fixedCols + 1, 1, Math.max(lastCol - LAY.fixedCols, 1)).merge().setValue(monthLabel_(m).toUpperCase()).setBackground(C.ink).setFontColor(C.white).setFontWeight('bold').setHorizontalAlignment('center').setVerticalAlignment('middle'); sh.setRowHeight(LAY.titleRow, 34); sh.getRange(LAY.hdrRow, 1, 3, LAY.fixedCols).setBackground(C.ink2); COLS.forEach(function (t, i) { sh.getRange(LAY.hdrRow, i + 1, 3, 1).merge().setValue(t).setFontColor(C.white).setFontWeight('bold').setFontSize(10).setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true); }); sh.getRange(LAY.hdrRow, firstDayCol, 1, nDays).merge().setValue('PREZENȚE').setBackground(C.ink).setFontColor(C.white).setFontWeight('bold').setHorizontalAlignment('center'); 
-  var wd = [], dd = [], bg = []; dates.forEach(function (d) { wd.push(['','L','Ma','Mi','J','V','S','D'][d.getDay() === 0 ? 7 : d.getDay()]); dd.push(d.getDate()); bg.push(g.accent); }); 
-  sh.getRange(LAY.dayRow, firstDayCol, 1, nDays).setValues([wd]).setBackgrounds([bg]).setFontColor(g.accent === '#FFC107' ? C.ink : C.white).setFontWeight('bold').setHorizontalAlignment('center'); sh.getRange(LAY.dateRow, firstDayCol, 1, nDays).setValues([dd]).setBackground('#FFFFFF').setFontColor(C.ink).setFontWeight('bold').setHorizontalAlignment('center').setBorder(true, true, true, true, true, false, C.greyDk, SpreadsheetApp.BorderStyle.SOLID); sh.getRange(LAY.hdrRow, statCol, 1, STAT.length).merge().setValue('EVOLUȚIE SPORTIVĂ').setBackground(C.lime).setFontColor(C.ink).setFontWeight('bold').setHorizontalAlignment('center'); sh.getRange(LAY.dayRow, statCol, 2, STAT.length).setBackground(C.grey); STAT.forEach(function (t, i) { sh.getRange(LAY.dayRow, statCol + i, 2, 1).merge().setValue(t).setFontWeight('bold').setFontSize(9).setWrap(true).setHorizontalAlignment('center').setVerticalAlignment('middle'); }); var a1First = colLetter_(firstDayCol), a1Last = colLetter_(firstDayCol + nDays - 1), rows = [], stats = []; for (var i = 0; i < CFG.ROWS_PER_GROUP; i++) { var r = LAY.firstData + i; rows.push([i + 1, '', '', '', '']); stats.push(['', '=IF($D'+r+'="";"";COUNTIF('+a1First+r+':'+a1Last+r+';"P"))', '=IF($D'+r+'="";"";COUNTIF('+a1First+r+':'+a1Last+r+';"AB"))', '=IF($D'+r+'="";"";COUNTIF('+a1First+r+':'+a1Last+r+';"R"))', '=IF($D'+r+'="";"";COUNTIF('+a1First+r+':'+a1Last+r+';"V"))', '=IF($D'+r+'="";"";IFERROR(COUNTIF('+a1First+r+':'+a1Last+r+';"P")/COUNTA('+a1First+r+':'+a1Last+r+');""))', '=IF($D'+r+'="";"";SPARKLINE({COUNTIF('+a1First+r+':'+a1Last+r+';"P")\\COUNTIF('+a1First+r+':'+a1Last+r+';"AB")};{"charttype"\\"bar";"color1"\\"#0B6B2E";"color2"\\"#8A1C1C";"max"\\'+nDays+'}))', '']); } sh.getRange(LAY.firstData, 1, CFG.ROWS_PER_GROUP, LAY.fixedCols).setValues(rows); sh.getRange(LAY.firstData, statCol, CFG.ROWS_PER_GROUP, STAT.length).setFormulas(stats); sh.getRange(LAY.firstData, statCol + 5, CFG.ROWS_PER_GROUP, 1).setNumberFormat('0%'); for (var j = 0; j < CFG.ROWS_PER_GROUP; j++) sh.getRange(LAY.firstData + j, 1, 1, lastCol).setBackground(j % 2 ? '#FAFBFC' : C.white); sh.getRange(LAY.firstData, 3, CFG.ROWS_PER_GROUP, 2).setFontWeight('bold').setFontColor(C.ink); sh.getRange(LAY.firstData, 1, CFG.ROWS_PER_GROUP, 1).setHorizontalAlignment('center').setFontColor(C.greyDk); sh.getRange(LAY.hdrRow, 1, lastRow - LAY.hdrRow + 1, lastCol).setBorder(true, true, true, true, true, true, '#CFD3D6', SpreadsheetApp.BorderStyle.SOLID); sh.getRange(LAY.hdrRow, 1, lastRow - LAY.hdrRow + 1, LAY.fixedCols).setBorder(null, null, null, true, null, null, C.ink, SpreadsheetApp.BorderStyle.SOLID_THICK); applyValidation_(sh, firstDayCol, nDays, lastRow); applyConditionalFormats_(sh, firstDayCol, nDays, lastRow); sh.setColumnWidth(1, 35); sh.setColumnWidth(2, 85); sh.setColumnWidth(3, 90); sh.setColumnWidth(4, 140); sh.setColumnWidth(5, 110); for (var k = 0; k < nDays; k++) sh.setColumnWidth(firstDayCol + k, 38); sh.setColumnWidth(statCol, 60); for (var s = 1; s < STAT.length; s++) sh.setColumnWidth(statCol + s, s === 6 ? 260 : 70); sh.setFrozenRows(LAY.dateRow); sh.setFrozenColumns(LAY.fixedCols); sh.setRowHeights(LAY.firstData, CFG.ROWS_PER_GROUP, 24); var sumRow = lastRow + 2; sh.getRange(sumRow, 1, 1, LAY.fixedCols).merge().setValue('TOTAL GRUPĂ').setBackground(C.ink).setFontColor(C.white).setFontWeight('bold').setHorizontalAlignment('center'); var totals = []; for (var d2 = 0; d2 < nDays; d2++) { var L = colLetter_(firstDayCol + d2); totals.push('=COUNTIF(' + L + LAY.firstData + ':' + L + lastRow + ';"P")'); } sh.getRange(sumRow, firstDayCol, 1, nDays).setFormulas([totals]).setBackground(C.lime).setFontWeight('bold').setHorizontalAlignment('center'); if (keep.length) { sh.getRange(LAY.firstData, 2, Math.min(keep.length, CFG.ROWS_PER_GROUP), LAY.fixedCols - 1).setValues(keep.slice(0, CFG.ROWS_PER_GROUP)); } 
+  var dates = monthGridDays_(m, g.days), nDays = dates.length; var firstDayCol = LAY.fixedCols + 1, statCol = firstDayCol + nDays, lastCol = statCol + STAT.length - 1, lastRow = LAY.firstData + CFG.ROWS_PER_GROUP - 1; 
+  paintDiagonalBands_(sh, 1, LAY.headerRows, 1, lastCol); bevelBlock_(sh, rng_(2, 2, LAY.headerRows - 1, 2), CFG.CLUB + '\n' + CFG.SUB, C.ink, C.white, 13); bevelBlock_(sh, rng_(2, 4, LAY.headerRows - 1, 2), CFG.PHONE + '\n' + CFG.EMAIL, C.white, C.ink, 10); bevelBlock_(sh, rng_(LAY.titleRow, 1, 1, LAY.fixedCols), g.cat + ' | L-V | ' + g.time, g.accent, g.accent === C.lime || g.accent === '#FFC107' ? C.ink : C.white, 12); sh.getRange(LAY.titleRow, LAY.fixedCols + 1, 1, Math.max(lastCol - LAY.fixedCols, 1)).merge().setValue(monthLabel_(m).toUpperCase() + '   •   ' + numarSaptamani_(m) + ' SĂPTĂMÂNI   •   ' + nDays + ' ZILE DE ANTRENAMENT').setBackground(C.ink).setFontColor(C.white).setFontWeight('bold').setHorizontalAlignment('center').setVerticalAlignment('middle'); sh.setRowHeight(LAY.titleRow, 34); sh.getRange(LAY.hdrRow, 1, 3, LAY.fixedCols).setBackground(C.ink2); COLS.forEach(function (t, i) { sh.getRange(LAY.hdrRow, i + 1, 3, 1).merge().setValue(t).setFontColor(C.white).setFontWeight('bold').setFontSize(10).setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true); }); sh.getRange(LAY.hdrRow, firstDayCol, 1, nDays).merge().setValue('PREZENȚE').setBackground(C.ink).setFontColor(C.white).setFontWeight('bold').setHorizontalAlignment('center'); 
+  var wd = [], dd = [], bg = [], bgDate = [], fgDate = [];
+  dates.forEach(function (d) {
+    wd.push(['','L','Ma','Mi','J','V','S','D'][d.getDay() === 0 ? 7 : d.getDay()]);
+    dd.push(d.getDate());
+    var inLuna = (d.getMonth() === m.getMonth() && d.getFullYear() === m.getFullYear());
+    bg.push(inLuna ? g.accent : '#C9CDD1');                 // zilele altei luni: bandă estompată
+    bgDate.push(inLuna ? C.white : '#EDEFF1');
+    fgDate.push(inLuna ? C.ink : C.greyDk);
+  });
+  sh.getRange(LAY.dayRow, firstDayCol, 1, nDays).setValues([wd]).setBackgrounds([bg]).setFontColor(g.accent === '#FFC107' ? C.ink : C.white).setFontWeight('bold').setHorizontalAlignment('center');
+  sh.getRange(LAY.dateRow, firstDayCol, 1, nDays).setValues([dd]).setBackgrounds([bgDate]).setFontColors([fgDate]).setFontWeight('bold').setHorizontalAlignment('center').setBorder(true, true, true, true, true, false, C.greyDk, SpreadsheetApp.BorderStyle.SOLID);
+  markWeekBounds_(sh, dates, firstDayCol, lastRow); sh.getRange(LAY.hdrRow, statCol, 1, STAT.length).merge().setValue('EVOLUȚIE SPORTIVĂ').setBackground(C.lime).setFontColor(C.ink).setFontWeight('bold').setHorizontalAlignment('center'); sh.getRange(LAY.dayRow, statCol, 2, STAT.length).setBackground(C.grey); STAT.forEach(function (t, i) { sh.getRange(LAY.dayRow, statCol + i, 2, 1).merge().setValue(t).setFontWeight('bold').setFontSize(9).setWrap(true).setHorizontalAlignment('center').setVerticalAlignment('middle'); }); var a1First = colLetter_(firstDayCol), a1Last = colLetter_(firstDayCol + nDays - 1), rows = [], stats = []; for (var i = 0; i < CFG.ROWS_PER_GROUP; i++) { var r = LAY.firstData + i; rows.push([i + 1, '', '', '', '']); stats.push(['', '=IF($D'+r+'="";"";COUNTIF('+a1First+r+':'+a1Last+r+';"P"))', '=IF($D'+r+'="";"";COUNTIF('+a1First+r+':'+a1Last+r+';"AB"))', '=IF($D'+r+'="";"";COUNTIF('+a1First+r+':'+a1Last+r+';"R"))', '=IF($D'+r+'="";"";COUNTIF('+a1First+r+':'+a1Last+r+';"V"))', '=IF($D'+r+'="";"";IFERROR(COUNTIF('+a1First+r+':'+a1Last+r+';"P")/COUNTA('+a1First+r+':'+a1Last+r+');""))', '=IF($D'+r+'="";"";SPARKLINE({COUNTIF('+a1First+r+':'+a1Last+r+';"P")\\COUNTIF('+a1First+r+':'+a1Last+r+';"AB")};{"charttype"\\"bar";"color1"\\"#0B6B2E";"color2"\\"#8A1C1C";"max"\\'+nDays+'}))', '']); } sh.getRange(LAY.firstData, 1, CFG.ROWS_PER_GROUP, LAY.fixedCols).setValues(rows); sh.getRange(LAY.firstData, statCol, CFG.ROWS_PER_GROUP, STAT.length).setFormulas(stats); sh.getRange(LAY.firstData, statCol + 5, CFG.ROWS_PER_GROUP, 1).setNumberFormat('0%'); for (var j = 0; j < CFG.ROWS_PER_GROUP; j++) sh.getRange(LAY.firstData + j, 1, 1, lastCol).setBackground(j % 2 ? '#FAFBFC' : C.white); sh.getRange(LAY.firstData, 3, CFG.ROWS_PER_GROUP, 2).setFontWeight('bold').setFontColor(C.ink); sh.getRange(LAY.firstData, 1, CFG.ROWS_PER_GROUP, 1).setHorizontalAlignment('center').setFontColor(C.greyDk); sh.getRange(LAY.hdrRow, 1, lastRow - LAY.hdrRow + 1, lastCol).setBorder(true, true, true, true, true, true, '#CFD3D6', SpreadsheetApp.BorderStyle.SOLID); sh.getRange(LAY.hdrRow, 1, lastRow - LAY.hdrRow + 1, LAY.fixedCols).setBorder(null, null, null, true, null, null, C.ink, SpreadsheetApp.BorderStyle.SOLID_THICK); applyValidation_(sh, firstDayCol, nDays, lastRow); applyConditionalFormats_(sh, firstDayCol, nDays, lastRow); sh.setColumnWidth(1, 35); sh.setColumnWidth(2, 85); sh.setColumnWidth(3, 90); sh.setColumnWidth(4, 140); sh.setColumnWidth(5, 110); for (var k = 0; k < nDays; k++) sh.setColumnWidth(firstDayCol + k, 38); sh.setColumnWidth(statCol, 60); for (var s = 1; s < STAT.length; s++) sh.setColumnWidth(statCol + s, s === 6 ? 260 : 70); sh.setFrozenRows(LAY.dateRow); sh.setFrozenColumns(LAY.fixedCols); sh.setRowHeights(LAY.firstData, CFG.ROWS_PER_GROUP, 24); var sumRow = lastRow + 2; sh.getRange(sumRow, 1, 1, LAY.fixedCols).merge().setValue('TOTAL GRUPĂ').setBackground(C.ink).setFontColor(C.white).setFontWeight('bold').setHorizontalAlignment('center'); var totals = []; for (var d2 = 0; d2 < nDays; d2++) { var L = colLetter_(firstDayCol + d2); totals.push('=COUNTIF(' + L + LAY.firstData + ':' + L + lastRow + ';"P")'); } sh.getRange(sumRow, firstDayCol, 1, nDays).setFormulas([totals]).setBackground(C.lime).setFontWeight('bold').setHorizontalAlignment('center'); if (keep.length) { sh.getRange(LAY.firstData, 2, Math.min(keep.length, CFG.ROWS_PER_GROUP), LAY.fixedCols - 1).setValues(keep.slice(0, CFG.ROWS_PER_GROUP)); } 
 }
 
 function buildDashboard_(ss) { var sh = ss.getSheetByName('RAPORT') || ss.insertSheet('RAPORT'); sh.clear(); sh.setHiddenGridlines(true); sh.setColumnWidths(1, 8, 150); paintDiagonalBands_(sh, 1, 4, 1, 8); bevelBlock_(sh, 'B2:G3', 'RAPORT CENTRALIZAT', C.ink, C.white, 16); sh.getRange(6, 2, 1, 5).setValues([['GRUPĂ', 'ZILE', 'INTERVAL', 'SPORTIVI', 'PREZENȚE TOTAL']]).setBackground(C.ink2).setFontColor(C.white).setFontWeight('bold').setHorizontalAlignment('center'); GROUPS.forEach(function (g, i) { var r = 7 + i, n = "'" + sheetName_(g) + "'"; sh.getRange(r, 2, 1, 3).setValues([[g.cat, dayNames_(g.days), g.time]]); sh.getRange(r, 5).setFormula('=COUNTA(' + n + '!D' + LAY.firstData + ':D1000)'); sh.getRange(r, 6).setFormula('=SUMPRODUCT(COUNTIF(' + n + '!F' + LAY.firstData + ':AZ1000;"P"))'); sh.getRange(r, 2).setFontWeight('bold').setFontColor(g.accent === C.lime || g.accent === '#FFC107' ? C.ink : g.accent); }); sh.getRange(6, 2, GROUPS.length + 1, 5).setBorder(true, true, true, true, true, true, C.greyDk, SpreadsheetApp.BorderStyle.SOLID); }
@@ -418,8 +434,23 @@ function rng_(row, col, nRows, nCols) { return colLetter_(col) + row + ':' + col
 function colLetter_(n) { var s = ''; while (n > 0) { var r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = (n - 1 - r) / 26; } return s; }
 function dayNames_(days) { var N = ['', 'LUNI', 'MARȚI', 'MIERCURI', 'JOI', 'VINERI']; return days.map(function (d) { return N[d]; }).join(' – '); }
 function monthLabel_(d) { var M = ['IANUARIE','FEBRUARIE','MARTIE','APRILIE','MAI','IUNIE','IULIE','AUGUST','SEPTEMBRIE','OCTOMBRIE','NOIEMBRIE','DECEMBRIE']; return M[d.getMonth()] + ' ' + d.getFullYear(); }
-function setWorkingMonth() { var ui = SpreadsheetApp.getUi(); var res = ui.prompt('Luna de lucru', 'Scrie luna în format AAAA-LL (Ex: 2026-09)', ui.ButtonSet.OK_CANCEL); if (res.getSelectedButton() !== ui.Button.OK) return; var v = res.getResponseText().trim(); if (!/^\d{4}-\d{2}$/.test(v)) { ui.alert('Format greșit.'); return; } PropertiesService.getDocumentProperties().setProperty('MONTH', v); SpreadsheetApp.getActiveSpreadsheet().toast('Luna a fost salvată!', 'MASTERS', 5); }
-function refreshCalendar() { var ss = SpreadsheetApp.getActiveSpreadsheet(), m = getWorkingMonth_(); GROUPS.forEach(function (g) { buildGroupSheet_(ss, g, m); }); buildDashboard_(ss); SpreadsheetApp.getActiveSpreadsheet().toast('Calendarul a fost recalculat!', 'MASTERS', 5); }
+function setWorkingMonth() { var ui = SpreadsheetApp.getUi(); var res = ui.prompt('Luna de lucru', 'Scrie luna în format AAAA-LL (Ex: 2026-09)', ui.ButtonSet.OK_CANCEL); if (res.getSelectedButton() !== ui.Button.OK) return; var v = res.getResponseText().trim(); if (!/^\d{4}-\d{2}$/.test(v)) { ui.alert('Format greșit.'); return; } PropertiesService.getDocumentProperties().setProperty('MONTH', v);
+  var p = v.split('-'), luna = new Date(Number(p[0]), Number(p[1]) - 1, 1);
+  var q = ui.alert('Luna a fost salvată: ' + monthLabel_(luna) + '\n\n' +
+                   'Grila va avea ' + numarSaptamani_(luna) + ' săptămâni complete.\n\n' +
+                   'Recalculez acum zilele din calendar?\n' +
+                   '(numele sportivilor se păstrează; prezențele se reimportă din registrul brut)',
+                   ui.ButtonSet.YES_NO);
+  if (q === ui.Button.YES) { refreshCalendar(); }
+  else { SpreadsheetApp.getActiveSpreadsheet().toast('Luna a fost salvată. Rulează „3. Recalculează zilele din calendar" când ești gata.', 'MASTERS', 8); }
+}
+function refreshCalendar() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), m = getWorkingMonth_();
+  GROUPS.forEach(function (g) { buildGroupSheet_(ss, g, m); });
+  buildDashboard_(ss);
+  try { invalidateSnapshot_(); } catch (err) {}
+  ss.toast('Calendar recalculat: ' + monthLabel_(m) + ' — ' + numarSaptamani_(m) + ' săptămâni.', 'MASTERS', 6);
+}
 function syncParentView() { SpreadsheetApp.getUi().alert('Apasă Fișier -> Trimite (Share) -> Public pentru a partaja tabelul.'); }
 
 /* ═══════════════════════════ 5. WEB APP: PORTAL PĂRINȚI ═══════════════════════════ */
@@ -1491,69 +1522,32 @@ function emailSendReminder() { processEmailNotifications('reminder'); }
 function emailSendMonthly()  { processEmailNotifications('monthly'); }
 
 function processEmailNotifications(type) {
-  var ui = SpreadsheetApp.getUi(), monthText = monthLabel_(getWorkingMonth_());
+  var ui = SpreadsheetApp.getUi();
   if (!CFG.EMAIL_ON) ui.alert('🛠️ MOD TESTARE ACTIV 🛠️\n\nMesajele NU pleacă real.\nVei primi o previzualizare pe ecran.\n\nPentru trimitere reală: CFG.EMAIL_ON = true');
 
-  var idx = formIndex_();
-  if (!idx || !idx.map) {
-    ui.alert('Nu am găsit adrese de email.\n\nAdaugă în Google Form un câmp „Email" și unul „Telefon",\napoi reîncearcă. Coloanele sunt detectate automat după antet.');
-    return;
-  }
+  var rap = emailRun_(type, getWorkingMonth_());
+  if (rap.eroare) { ui.alert(rap.eroare); return; }
 
-  var snap = getSnapshot_(false);
-  if (!snap) { ui.alert('Nu am putut citi registrul brut.'); return; }
-
-  var curLuna = null;
-  snap.months.forEach(function (m) { if (m.name === snap.curSheet) curLuna = m; });
-  if (!curLuna) { ui.alert('Luna curentă nu a fost găsită în registrul brut.'); return; }
-
-  var eligibili = 0, trimise = 0, faraEmail = 0, preview = [], lipsa = [], esecuri = [];
-  curLuna.ath.forEach(function (a) {
-    if (type === 'reminder' && a.plata === 'Achitat') return;
-    // Se încearcă TOATE numerele din celula CONTACT, apoi numele sportivului.
-    var rec = formLookup_(a.ph, a.numeComplet);
-    var email = (rec && rec.email) ? rec.email : '';
-    if (!email || email.indexOf('@') < 0) {
-      faraEmail++;
-      if (lipsa.length < 12) lipsa.push('• ' + a.numeComplet + (a.ph && a.ph.length ? '  (' + a.ph[0] + ')' : ''));
-      return;
-    }
-
-    var msg = emailCompune_(type, a, curLuna, monthText);
-
-    eligibili++;
-    if (CFG.EMAIL_ON) {
-      // Orice eșec este raportat, nu înghițit: altfel vezi „trimise: 0" fără niciun motiv.
-      try {
-        MailApp.sendEmail({ to: email, subject: msg.subiect, body: msg.text, htmlBody: msg.html, name: CFG.CLUB });
-        trimise++;
-      }
-      catch (err) { esecuri.push('• ' + email + '  (' + a.numeComplet + ')\n   ↳ ' + (err && err.message ? err.message : String(err))); }
-    } else {
-      if (preview.length < 3) preview.push('Către: ' + email + '  (' + a.numeComplet + ')\n' + msg.subiect);
-    }
-  });
-
-  var detaliuLipsa = lipsa.length
-    ? '\n\n── Fără răspuns la formular (' + faraEmail + ') ──\n' + lipsa.join('\n') +
-      (faraEmail > lipsa.length ? '\n… și încă ' + (faraEmail - lipsa.length) : '') +
+  var detaliuLipsa = rap.lipsa.length
+    ? '\n\n── Fără răspuns la formular (' + rap.faraEmail + ') ──\n' + rap.lipsa.join('\n') +
+      (rap.faraEmail > rap.lipsa.length ? '\n… și încă ' + (rap.faraEmail - rap.lipsa.length) : '') +
       '\n\nAcești părinți nu au completat încă formularul, sau numele sportivului\n' +
       'din formular diferă de cel din registrul antrenorilor.'
     : '';
 
   if (!CFG.EMAIL_ON) {
-    ui.alert('PREVIZUALIZARE — ' + eligibili + ' destinatari' + detaliuLipsa + '\n\n' +
-             (preview.join('\n\n---\n') || '(niciun destinatar eligibil)'));
+    ui.alert('PREVIZUALIZARE — ' + rap.eligibili + ' destinatari' + detaliuLipsa + '\n\n' +
+             (rap.preview.join('\n\n---\n') || '(niciun destinatar eligibil)'));
     return;
   }
 
-  var cap = (trimise === eligibili)
-    ? '✅ Emailuri trimise: ' + trimise
-    : '⚠️ Trimise ' + trimise + ' din ' + eligibili + ' destinatari eligibili';
+  var cap = (rap.trimise === rap.eligibili)
+    ? '✅ Emailuri trimise: ' + rap.trimise
+    : '⚠️ Trimise ' + rap.trimise + ' din ' + rap.eligibili + ' destinatari eligibili';
 
   var detaliuEsec = '';
-  if (esecuri.length) {
-    detaliuEsec = '\n\n── Eșuate (' + esecuri.length + ') ──\n' + esecuri.slice(0, 5).join('\n') +
+  if (rap.esecuri.length) {
+    detaliuEsec = '\n\n── Eșuate (' + rap.esecuri.length + ') ──\n' + rap.esecuri.slice(0, 5).join('\n') +
       '\n\nCauze frecvente:\n' +
       '• autorizarea pentru trimiterea de emailuri nu a fost acordată\n' +
       '  → rulează o dată „✉️ Verifică trimiterea de email" din meniu;\n' +
@@ -1562,6 +1556,154 @@ function processEmailNotifications(type) {
   }
 
   ui.alert(cap + detaliuEsec + detaliuLipsa);
+}
+
+/**
+ * Motorul de trimitere, fără interfață — poate rula și dintr-un declanșator automat,
+ * unde SpreadsheetApp.getUi() nu este disponibil.
+ * type: 'monthly' | 'reminder' | 'reminder_final'
+ */
+function emailRun_(type, lunaLucru) {
+  var rap = { eligibili: 0, trimise: 0, faraEmail: 0, preview: [], lipsa: [], esecuri: [], eroare: '' };
+
+  var idx = formIndex_();
+  if (!idx) {
+    rap.eroare = 'Nu am găsit adrese de email.\n\nAdaugă în Google Form un câmp „Email" și unul „Telefon",\napoi reîncearcă. Coloanele sunt detectate automat după antet.';
+    return rap;
+  }
+
+  var snap = getSnapshot_(false);
+  if (!snap) { rap.eroare = 'Nu am putut citi registrul brut.'; return rap; }
+
+  var curLuna = null;
+  snap.months.forEach(function (m) { if (m.name === snap.curSheet) curLuna = m; });
+  if (!curLuna) { rap.eroare = 'Luna curentă nu a fost găsită în registrul brut.'; return rap; }
+
+  var monthText = monthLabel_(lunaLucru || getWorkingMonth_());
+
+  curLuna.ath.forEach(function (a) {
+    if ((type === 'reminder' || type === 'reminder_final') && a.plata === 'Achitat') return;
+
+    // Se încearcă TOATE numerele din celula CONTACT, apoi numele sportivului.
+    var rec = formLookup_(a.ph, a.numeComplet);
+    var email = (rec && rec.email) ? rec.email : '';
+    if (!email || email.indexOf('@') < 0) {
+      rap.faraEmail++;
+      if (rap.lipsa.length < 12) rap.lipsa.push('• ' + a.numeComplet + (a.ph && a.ph.length ? '  (' + a.ph[0] + ')' : ''));
+      return;
+    }
+
+    var msg = emailCompune_(type, a, curLuna, monthText);
+    rap.eligibili++;
+
+    if (CFG.EMAIL_ON) {
+      // Orice eșec este raportat, nu înghițit: altfel vezi „trimise: 0" fără niciun motiv.
+      try {
+        MailApp.sendEmail({ to: email, subject: msg.subiect, body: msg.text, htmlBody: msg.html, name: CFG.CLUB });
+        rap.trimise++;
+      } catch (err) {
+        rap.esecuri.push('• ' + email + '  (' + a.numeComplet + ')\n   ↳ ' + (err && err.message ? err.message : String(err)));
+      }
+    } else {
+      if (rap.preview.length < 3) rap.preview.push('Către: ' + email + '  (' + a.numeComplet + ')\n' + msg.subiect);
+    }
+  });
+
+  return rap;
+}
+
+/* ─────────── 7.5.1 Programare automată ─────────── */
+
+function ziSimpla_(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+function adaugaZile_(d, n) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); }
+
+/**
+ * Calendarul mementourilor pentru o lună:
+ *  • salutul pleacă cu CFG.EMAIL_ZILE_INAINTE zile înainte de prima zi de antrenament;
+ *  • mementoul de plată pleacă în ultima zi de antrenament a PRIMEI săptămâni.
+ */
+function emailPlanLuna_(luna) {
+  var r = gridRange_(luna, [1, 2, 3, 4, 5]);
+  if (!r) return null;
+
+  var zile = monthGridDays_(luna, [1, 2, 3, 4, 5]);
+  if (!zile.length) return null;
+
+  var primaZi = zile[0];
+  var sfarsitSapt1 = adaugaZile_(r.start, 6);
+  var ultimaDinSapt1 = primaZi;
+  zile.forEach(function (z) { if (z <= sfarsitSapt1 && z > ultimaDinSapt1) ultimaDinSapt1 = z; });
+
+  return {
+    primaZi: primaZi,
+    ziSalut: adaugaZile_(primaZi, -CFG.EMAIL_ZILE_INAINTE),
+    ziMemento: ultimaDinSapt1
+  };
+}
+
+/** Rulează zilnic. Trimite doar în zilele planificate și doar o dată pe lună. */
+function emailAutoWorker() {
+  try {
+    if (!CFG.EMAIL_AUTO) return;
+    var luna = getWorkingMonth_();
+    var plan = emailPlanLuna_(luna);
+    if (!plan) return;
+
+    var azi = ziSimpla_(new Date());
+    var tag = luna.getFullYear() + '-' + pad2_(luna.getMonth() + 1);
+
+    if (azi.getTime() === plan.ziSalut.getTime())   emailAutoTrimite_('monthly', luna, 'SALUT_' + tag);
+    if (azi.getTime() === plan.ziMemento.getTime()) emailAutoTrimite_('reminder_final', luna, 'PLATA_' + tag);
+  } catch (err) { console.error(err); }
+}
+
+function emailAutoTrimite_(type, luna, cheie) {
+  var p = props_();
+  if (p.getProperty('AUTOSENT_' + cheie)) return;        // deja trimis pentru luna asta
+  var rap = emailRun_(type, luna);
+  p.setProperty('AUTOSENT_' + cheie, new Date().toISOString());
+  p.setProperty('EMAIL_ULTIMA_RULARE',
+    new Date().toLocaleString() + ' · ' + type + ' · trimise ' + rap.trimise + '/' + rap.eligibili +
+    (rap.esecuri.length ? ' · eșecuri ' + rap.esecuri.length : '') + (rap.eroare ? ' · ' + rap.eroare : ''));
+}
+
+function installEmailAuto() {
+  var ui = SpreadsheetApp.getUi();
+  removeEmailAuto(true);
+  ScriptApp.newTrigger('emailAutoWorker').timeBased().everyDays(1).atHour(9).create();
+  var plan = emailPlanLuna_(getWorkingMonth_());
+  ui.alert('✅ Trimitere automată activată.\n\n' +
+    (plan ? ('Pentru ' + monthLabel_(getWorkingMonth_()) + ':\n' +
+      '• Salut lună nouă: ' + plan.ziSalut.getDate() + ' ' + LUNI_RO[plan.ziSalut.getMonth()].toLowerCase() +
+      '  (cu ' + CFG.EMAIL_ZILE_INAINTE + ' zile înainte de primul antrenament, ' +
+      plan.primaZi.getDate() + ' ' + LUNI_RO[plan.primaZi.getMonth()].toLowerCase() + ')\n' +
+      '• Memento de plată: ' + plan.ziMemento.getDate() + ' ' + LUNI_RO[plan.ziMemento.getMonth()].toLowerCase() +
+      '  (ultima zi a primei săptămâni)\n\n') : '') +
+    (CFG.EMAIL_ON ? 'CFG.EMAIL_ON = true → mesajele pleacă REAL.'
+                  : '⚠️ CFG.EMAIL_ON = false → nu va pleca nimic.\nPune-l pe true când ești gata.'));
+}
+
+function removeEmailAuto(silent) {
+  var t = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < t.length; i++) {
+    if (t[i].getHandlerFunction() === 'emailAutoWorker') ScriptApp.deleteTrigger(t[i]);
+  }
+  if (silent !== true) SpreadsheetApp.getUi().alert('❌ Trimiterea automată a fost oprită.');
+}
+
+function emailPlanArata() {
+  var ui = SpreadsheetApp.getUi(), luna = getWorkingMonth_(), plan = emailPlanLuna_(luna);
+  if (!plan) { ui.alert('Nu am putut calcula planul pentru ' + monthLabel_(luna) + '.'); return; }
+  var f = function (d) { return ZI_RO_[(d.getDay() === 0) ? 7 : d.getDay()] + ', ' + d.getDate() + ' ' + LUNI_RO[d.getMonth()].toLowerCase(); };
+  var activ = ScriptApp.getProjectTriggers().filter(function (t) { return t.getHandlerFunction() === 'emailAutoWorker'; }).length > 0;
+  ui.alert('📅 PLAN — ' + monthLabel_(luna) + '\n\n' +
+    'Săptămâni în grilă: ' + numarSaptamani_(luna) + '\n' +
+    'Primul antrenament: ' + f(plan.primaZi) + '\n\n' +
+    '✉️ Salut lună nouă: ' + f(plan.ziSalut) + '\n' +
+    '✉️ Memento de plată: ' + f(plan.ziMemento) + '\n\n' +
+    'Trimitere automată: ' + (activ ? 'ACTIVĂ' : 'oprită') + '\n' +
+    'Trimitere reală: ' + (CFG.EMAIL_ON ? 'DA' : 'nu (mod testare)') + '\n\n' +
+    'Ultima rulare automată:\n' + (props_().getProperty('EMAIL_ULTIMA_RULARE') || '(niciuna)'));
 }
 
 /**
@@ -1671,30 +1813,65 @@ function eHtml_(v) {
   return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-/** O casetă cu bară colorată în stânga. */
+/** Casetă cu relief: bară de accent în stânga și muchie întunecată jos. */
 function eBox_(accent, titlu, continut) {
-  return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 14px 0;border-collapse:separate;">' +
+  return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="mx-card" style="margin:0 0 16px 0;border-collapse:separate;">' +
     '<tr>' +
-      '<td width="4" bgcolor="' + accent + '" style="background:' + accent + ';width:4px;border-radius:3px 0 0 3px;">&nbsp;</td>' +
-      '<td bgcolor="#F7F9FB" style="background:#F7F9FB;padding:14px 16px;border-radius:0 8px 8px 0;">' +
-        (titlu ? '<div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:' + accent + ';margin-bottom:6px;">' + titlu + '</div>' : '') +
+      '<td width="5" bgcolor="' + accent + '" style="background:' + accent + ';width:5px;border-radius:10px 0 0 10px;">&nbsp;</td>' +
+      '<td bgcolor="#F6F8FA" style="background:#F6F8FA;background-image:linear-gradient(180deg,#FFFFFF 0%,#F2F5F8 100%);padding:16px 18px;border-radius:0 10px 0 0;border-top:1px solid #FFFFFF;">' +
+        (titlu ? '<div style="font-size:11px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:' + accent + ';margin-bottom:7px;">' + titlu + '</div>' : '') +
         '<div style="font-size:15px;color:#111111;line-height:1.55;">' + continut + '</div>' +
       '</td>' +
+    '</tr>' +
+    '<tr>' +
+      '<td bgcolor="' + eUmbra_(accent) + '" style="background:' + eUmbra_(accent) + ';height:3px;font-size:0;line-height:0;border-radius:0 0 0 10px;">&nbsp;</td>' +
+      '<td bgcolor="#D8DEE4" style="background:#D8DEE4;height:3px;font-size:0;line-height:0;border-radius:0 0 10px 0;">&nbsp;</td>' +
     '</tr></table>';
+}
+
+/** Varianta întunecată a unei culori — muchia care dă senzația de relief. */
+function eUmbra_(hex) {
+  var h = String(hex).replace('#', '');
+  if (h.length !== 6) return '#888888';
+  var out = '#';
+  for (var i = 0; i < 3; i++) {
+    var v = Math.round(parseInt(h.substr(i * 2, 2), 16) * 0.62);
+    out += (v < 16 ? '0' : '') + v.toString(16);
+  }
+  return out;
+}
+
+/** Bară de progres pe tabele — se afișează corect inclusiv în Outlook. */
+function eProgress_(procent, culoare) {
+  var p = Math.max(0, Math.min(100, Math.round(procent)));
+  var gol = 100 - p;
+  return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-radius:7px;overflow:hidden;background:#E3E8ED;"><tr>' +
+    (p > 0 ? '<td width="' + p + '%" bgcolor="' + culoare + '" style="background:' + culoare + ';height:12px;font-size:0;line-height:0;">&nbsp;</td>' : '') +
+    (gol > 0 ? '<td width="' + gol + '%" bgcolor="#E3E8ED" style="background:#E3E8ED;height:12px;font-size:0;line-height:0;">&nbsp;</td>' : '') +
+    '</tr></table>';
+}
+
+/** Pastilă cu cifră mare — un „tile" de statistică. */
+function eTile_(valoare, eticheta, culoare) {
+  return '<td align="center" width="33%" style="padding:6px 4px;">' +
+    '<div style="font-size:26px;font-weight:bold;color:' + culoare + ';line-height:1.1;">' + valoare + '</div>' +
+    '<div style="font-size:10px;color:#7A828A;text-transform:uppercase;letter-spacing:1px;margin-top:3px;">' + eticheta + '</div></td>';
 }
 
 /**
  * Compune emailul pentru un sportiv.
- * type: 'reminder' (memento de plată) sau 'monthly' (salut de lună nouă).
+ * type: 'monthly' (salut de lună nouă) | 'reminder' (memento) | 'reminder_final'
+ * (finalul primei săptămâni, neachitat — conține avertizarea privind participarea).
  */
 function emailCompune_(type, a, luna, monthText) {
   var g = matchGroup_(a.cat) || { cat: a.cat, time: '' };
   var azi = new Date();
   var urm = urmatorulAntrenament_(a, g, azi);
   var wd = zileFixeWeekdays_(a.zileFixe, g);
-  var sedinteLuna = wd.length ? monthDays_(new Date(luna.y, luna.m, 1), wd).length : 0;
+  var lunaStart = new Date(luna.y, luna.m, 1);
+  var sedinteLuna = wd.length ? monthDays_(lunaStart, wd).length : 0;
+  var final = (type === 'reminder_final');
 
-  // Statistici din luna curentă
   var ist = buildIstoric_(a, luna.y, luna.m, azi);
   var prez = 0, abs = 0, rec = 0, elig = 0;
   ist.forEach(function (z) {
@@ -1704,126 +1881,153 @@ function emailCompune_(type, a, luna, monthText) {
     else if (z.cod === 'E' || z.cod === 'B' || z.cod === 'AC') elig++;
   });
   var recDisp = Math.max(0, elig - rec);
+  var efectuate = prez + rec;
+  var procent = sedinteLuna ? Math.min(100, Math.round(efectuate / sedinteLuna * 100)) : 0;
 
   var tarif = String(a.tarif || '').trim();
-  var tarifText = '';
-  if (tarif) tarifText = /lei/i.test(tarif) ? tarif : (tarif + ' lei');
-
+  var tarifText = tarif ? (/lei/i.test(tarif) ? tarif : tarif + ' lei') : '';
   var achitat = (a.plata === 'Achitat');
   var scadenta = CFG.ZI_SCADENTA + ' ' + LUNI_RO[luna.m].toLowerCase();
   var program = programFixLabel_(a, g) || ((g.cat ? g.cat + ' ' : '') + (g.time || ''));
   var portal = portalAppUrl_() || CFG.PUBLIC_LINK;
   var refPlata = a.numeComplet + ' – luna ' + String(monthText).toLowerCase();
 
-  var subiect = (type === 'reminder')
-    ? ('Abonament ' + monthText + ' — ' + a.prenume + ' | ' + CFG.CLUB)
-    : (a.prenume + ' — programul lunii ' + monthText + ' | ' + CFG.CLUB);
+  var subiect = final
+    ? ('⚠️ Abonament neachitat — ' + a.prenume + ' | ' + CFG.CLUB)
+    : (type === 'reminder'
+        ? ('Abonament ' + monthText + ' — ' + a.prenume + ' | ' + CFG.CLUB)
+        : (a.prenume + ' — programul lunii ' + monthText + ' | ' + CFG.CLUB));
 
-  /* ───────── HTML ───────── */
   var h = [];
   h.push('<!DOCTYPE html><html><head><meta charset="utf-8">');
-  h.push('<meta name="viewport" content="width=device-width,initial-scale=1"></head>');
-  h.push('<body style="margin:0;padding:0;background:#EEF1F4;">');
-  h.push('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#EEF1F4;padding:20px 10px;"><tr><td align="center">');
-  h.push('<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#FFFFFF;border-radius:14px;overflow:hidden;font-family:Helvetica,Arial,sans-serif;">');
+  h.push('<meta name="viewport" content="width=device-width,initial-scale=1">');
+  /* Animațiile sunt strict decorative. Clienții care le ignoră (Gmail web, Outlook)
+     afișează exact același conținut — totul esențial este în stiluri inline. */
+  h.push('<style>' +
+    '@keyframes mxUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}' +
+    '@keyframes mxPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.035)}}' +
+    '@keyframes mxGrow{from{width:0}}' +
+    '.mx-card{animation:mxUp .5s ease-out both}' +
+    '.mx-card:nth-of-type(2){animation-delay:.07s}.mx-card:nth-of-type(3){animation-delay:.14s}' +
+    '.mx-cta{animation:mxPulse 2.4s ease-in-out infinite}' +
+    '.mx-bar td:first-child{animation:mxGrow 1.1s ease-out}' +
+    '@media (prefers-reduced-motion:reduce){.mx-card,.mx-cta,.mx-bar td:first-child{animation:none!important}}' +
+    '@media only screen and (max-width:620px){.mx-pad{padding:20px 16px!important}.mx-h1{font-size:19px!important}}' +
+    '</style></head>');
+  h.push('<body style="margin:0;padding:0;background:#E7EBEF;">');
+  h.push('<div style="display:none;max-height:0;overflow:hidden;opacity:0;">' +
+    eHtml_(final ? 'Abonamentul nu figurează achitat — participarea se suspendă.'
+                 : (type === 'reminder' ? 'Detalii de plată pentru ' + monthText
+                                        : 'Programul lui ' + a.prenume + ' pentru ' + monthText)) + '</div>');
+  h.push('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#E7EBEF;padding:22px 10px;"><tr><td align="center">');
+  h.push('<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#FFFFFF;border-radius:16px;overflow:hidden;font-family:Helvetica,Arial,sans-serif;">');
 
-  // bandă de culori
   h.push('<tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>' +
-    '<td height="6" bgcolor="' + C.cyan + '" style="height:6px;font-size:0;line-height:0;">&nbsp;</td>' +
-    '<td height="6" bgcolor="' + C.magenta + '" style="height:6px;font-size:0;line-height:0;">&nbsp;</td>' +
-    '<td height="6" bgcolor="' + C.orange + '" style="height:6px;font-size:0;line-height:0;">&nbsp;</td>' +
-    '<td height="6" bgcolor="' + C.lime + '" style="height:6px;font-size:0;line-height:0;">&nbsp;</td>' +
+    '<td height="7" bgcolor="' + C.cyan + '" style="height:7px;font-size:0;line-height:0;">&nbsp;</td>' +
+    '<td height="7" bgcolor="' + C.magenta + '" style="height:7px;font-size:0;line-height:0;">&nbsp;</td>' +
+    '<td height="7" bgcolor="' + C.orange + '" style="height:7px;font-size:0;line-height:0;">&nbsp;</td>' +
+    '<td height="7" bgcolor="' + C.lime + '" style="height:7px;font-size:0;line-height:0;">&nbsp;</td>' +
     '</tr></table></td></tr>');
 
-  // antet
-  h.push('<tr><td bgcolor="#111111" style="background:#111111;padding:24px 28px;" align="center">' +
-    (CFG.LOGO_URL ? '<img src="' + eHtml_(CFG.LOGO_URL) + '" width="64" alt="" style="display:block;margin:0 auto 10px auto;border:0;">' : '') +
-    '<div style="color:#FFFFFF;font-size:19px;font-weight:bold;letter-spacing:2px;">' + eHtml_(CFG.CLUB) + '</div>' +
-    '<div style="color:' + C.lime + ';font-size:11px;letter-spacing:1px;text-transform:uppercase;margin-top:4px;">' + eHtml_(CFG.SUB) + '</div>' +
+  h.push('<tr><td bgcolor="#111111" style="background:#111111;background-image:linear-gradient(160deg,#2B2B2B 0%,#111111 60%);padding:26px 28px;" align="center">' +
+    (CFG.LOGO_URL ? '<img src="' + eHtml_(CFG.LOGO_URL) + '" width="66" alt="" style="display:block;margin:0 auto 12px auto;border:0;">' : '') +
+    '<div style="color:#FFFFFF;font-size:20px;font-weight:bold;letter-spacing:2.5px;">' + eHtml_(CFG.CLUB) + '</div>' +
+    '<div style="color:' + C.lime + ';font-size:10px;letter-spacing:2px;text-transform:uppercase;margin-top:5px;">' + eHtml_(CFG.SUB) + '</div>' +
     '</td></tr>');
+  h.push('<tr><td height="3" bgcolor="#000000" style="height:3px;font-size:0;line-height:0;">&nbsp;</td></tr>');
 
-  h.push('<tr><td style="padding:28px;">');
-  h.push('<p style="margin:0 0 4px 0;font-size:15px;color:#555;">Bună ziua!</p>');
-  h.push('<h1 style="margin:0 0 18px 0;font-size:22px;color:#111111;line-height:1.3;">' +
-    (type === 'reminder'
-      ? 'Abonamentul lui ' + eHtml_(a.prenume) + ' pentru ' + eHtml_(monthText)
-      : 'O lună nouă începe pentru ' + eHtml_(a.prenume) + ' 🎾') + '</h1>');
+  h.push('<tr><td class="mx-pad" style="padding:28px;">');
+  h.push('<p style="margin:0 0 4px 0;font-size:14px;color:#6B737B;">Bună ziua!</p>');
+  h.push('<h1 class="mx-h1" style="margin:0 0 20px 0;font-size:23px;color:#111111;line-height:1.3;font-weight:bold;">' +
+    (final ? 'Abonamentul lui ' + eHtml_(a.prenume) + ' nu figurează achitat'
+           : (type === 'reminder' ? 'Abonamentul lui ' + eHtml_(a.prenume) + ' pentru ' + eHtml_(monthText)
+                                  : 'O lună nouă începe pentru ' + eHtml_(a.prenume) + ' 🎾')) + '</h1>');
 
-  // sportiv
+  if (final) {
+    h.push('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px 0;border-collapse:separate;"><tr>' +
+      '<td bgcolor="#FDECEA" style="background:#FDECEA;border:1px solid #F5C6C2;border-left:5px solid #C62828;border-radius:10px;padding:15px 17px;">' +
+      '<div style="font-size:12px;font-weight:bold;color:#C62828;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;">Prima săptămână s-a încheiat</div>' +
+      '<div style="font-size:14px;color:#5F2120;line-height:1.55;">Abonamentul pentru <strong>' + eHtml_(monthText) +
+      '</strong> nu figurează achitat. Conform regulamentului, <strong>participarea la antrenamente se suspendă</strong> până la regularizarea plății.' +
+      '<br><br>Dacă ați achitat deja, vă rugăm să ne trimiteți dovada — actualizăm imediat.</div>' +
+      '</td></tr></table>');
+  }
+
   h.push(eBox_(C.cyan, 'Sportiv',
-    '<strong style="font-size:16px;">' + eHtml_(a.numeComplet) + '</strong><br>' +
-    '<span style="color:#555;">Grupa <strong>' + eHtml_(g.cat || '—') + '</strong>' +
-    (a.coach ? ' · Antrenor <strong>' + eHtml_(a.coach) + '</strong>' : '') + '</span><br>' +
-    '<span style="color:#555;">Program: <strong>' + eHtml_(program || '—') + '</strong></span>' +
-    (sedinteLuna ? '<br><span style="color:#555;">' + sedinteLuna + ' ședințe programate în ' + eHtml_(monthText.split(' ')[0].toLowerCase()) + '</span>' : '')));
+    '<strong style="font-size:17px;">' + eHtml_(a.numeComplet) + '</strong><br>' +
+    '<span style="color:#5A6169;">Grupa <strong style="color:#111;">' + eHtml_(g.cat || '—') + '</strong>' +
+    (a.coach ? ' · Antrenor <strong style="color:#111;">' + eHtml_(a.coach) + '</strong>' : '') + '</span><br>' +
+    '<span style="color:#5A6169;">Program: <strong style="color:#111;">' + eHtml_(program || '—') + '</strong></span>' +
+    (sedinteLuna ? '<br><span style="color:#5A6169;"><strong style="color:#111;">' + sedinteLuna + '</strong> ședințe programate în ' + eHtml_(String(monthText).split(' ')[0].toLowerCase()) + '</span>' : '')));
 
-  // următorul antrenament
   if (urm) {
     var cand = (urm.peste === 0) ? 'Astăzi' : (urm.peste === 1 ? 'Mâine' : urm.zi);
     h.push(eBox_(C.lime, 'Următorul antrenament',
-      '<strong style="font-size:17px;">' + eHtml_(cand) + ', ' + eHtml_(urm.data) + '</strong>' +
-      (urm.ora ? '<br><span style="color:#555;">Ora ' + eHtml_(urm.ora) + '</span>' : '')));
+      '<strong style="font-size:19px;">' + eHtml_(cand) + ', ' + eHtml_(urm.data) + '</strong>' +
+      (urm.ora ? '<br><span style="color:#5A6169;">Ora <strong style="color:#111;">' + eHtml_(urm.ora) + '</strong></span>' : '')));
   }
 
-  // plată
-  if (type === 'reminder' || !achitat) {
+  if (type === 'reminder' || final || !achitat) {
     var plata = '';
-    if (tarifText) plata += '<span style="font-size:24px;font-weight:bold;color:' + C.magenta + ';">' + eHtml_(tarifText) + '</span><br>';
-    plata += '<span style="color:#555;">Termen de plată: <strong>' + eHtml_(scadenta) + '</strong></span>';
-    plata += '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;font-size:13px;color:#333;">' +
-      '<tr><td style="padding:2px 0;color:#777;">Beneficiar</td><td style="padding:2px 0;" align="right"><strong>' + eHtml_(CFG.BANK.TITULAR) + '</strong></td></tr>' +
-      '<tr><td style="padding:2px 0;color:#777;">IBAN</td><td style="padding:2px 0;" align="right"><strong style="color:' + C.magenta + ';">' + eHtml_(CFG.BANK.IBAN) + '</strong></td></tr>' +
-      '<tr><td style="padding:2px 0;color:#777;">Banca</td><td style="padding:2px 0;" align="right">' + eHtml_(CFG.BANK.BANCA) + '</td></tr>' +
-      '<tr><td style="padding:2px 0;color:#777;">CIF</td><td style="padding:2px 0;" align="right">' + eHtml_(CFG.BANK.CUI) + '</td></tr>' +
+    if (tarifText) plata += '<div style="font-size:30px;font-weight:bold;color:' + C.magenta + ';line-height:1.1;margin-bottom:4px;">' + eHtml_(tarifText) + '</div>';
+    plata += '<span style="color:#5A6169;">Termen de plată: <strong style="color:#111;">' + eHtml_(scadenta) + '</strong></span>';
+    plata += '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:14px;font-size:13px;color:#333;">' +
+      '<tr><td style="padding:3px 0;color:#7A828A;">Beneficiar</td><td style="padding:3px 0;" align="right"><strong>' + eHtml_(CFG.BANK.TITULAR) + '</strong></td></tr>' +
+      '<tr><td style="padding:3px 0;color:#7A828A;">IBAN</td><td style="padding:3px 0;" align="right"><strong style="color:' + C.magenta + ';">' + eHtml_(CFG.BANK.IBAN) + '</strong></td></tr>' +
+      '<tr><td style="padding:3px 0;color:#7A828A;">Banca</td><td style="padding:3px 0;" align="right">' + eHtml_(CFG.BANK.BANCA) + '</td></tr>' +
+      '<tr><td style="padding:3px 0;color:#7A828A;">CIF</td><td style="padding:3px 0;" align="right">' + eHtml_(CFG.BANK.CUI) + '</td></tr>' +
       '</table>' +
-      '<div style="margin-top:10px;padding:10px 12px;background:#FFF6E6;border-radius:6px;font-size:13px;color:#7A4B00;">' +
-      'La <strong>detalii plată</strong> scrieți exact:<br><strong>' + eHtml_(refPlata) + '</strong></div>' +
-      (tarifText ? '' : '<div style="margin-top:8px;font-size:12px;color:#777;">Suma exactă vă este comunicată de antrenor.</div>');
-    h.push(eBox_(C.magenta, 'De achitat', plata));
+      '<div style="margin-top:12px;padding:11px 13px;background:#FFF6E6;border-radius:8px;border:1px solid #FFE3B0;font-size:13px;color:#7A4B00;">' +
+      'La <strong>detalii plată</strong> scrieți exact:<br><strong style="color:#111;">' + eHtml_(refPlata) + '</strong></div>' +
+      (tarifText ? '' : '<div style="margin-top:9px;font-size:12px;color:#7A828A;">Suma exactă vă este comunicată de antrenor.</div>');
+    h.push(eBox_(final ? '#C62828' : C.magenta, 'De achitat', plata));
   } else {
     h.push(eBox_('#0B6B2E', 'Abonament', '✅ <strong>Achitat</strong> pentru ' + eHtml_(monthText) +
-      (a.dataPlata ? ' <span style="color:#555;">(' + eHtml_(a.dataPlata) + ')</span>' : '')));
+      (a.dataPlata ? ' <span style="color:#5A6169;">(' + eHtml_(a.dataPlata) + ')</span>' : '')));
   }
 
-  // situație
   if (prez + abs + rec > 0) {
     h.push(eBox_(C.orange, 'Situația din ' + eHtml_(monthText),
       '<table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>' +
-      '<td align="center" style="padding:4px;"><div style="font-size:22px;font-weight:bold;color:#0B6B2E;">' + prez + '</div><div style="font-size:11px;color:#777;text-transform:uppercase;">Prezențe</div></td>' +
-      '<td align="center" style="padding:4px;"><div style="font-size:22px;font-weight:bold;color:#B3261E;">' + abs + '</div><div style="font-size:11px;color:#777;text-transform:uppercase;">Absențe</div></td>' +
-      '<td align="center" style="padding:4px;"><div style="font-size:22px;font-weight:bold;color:' + C.cyan + ';">' + rec + '</div><div style="font-size:11px;color:#777;text-transform:uppercase;">Recuperate</div></td>' +
+      eTile_(prez, 'Prezențe', '#0B6B2E') + eTile_(abs, 'Absențe', '#B3261E') + eTile_(rec, 'Recuperate', C.cyan) +
       '</tr></table>' +
-      (recDisp > 0 ? '<div style="margin-top:10px;padding:8px 12px;background:#FFF1E0;border-radius:6px;font-size:13px;color:#8A4B00;">🪃 Aveți <strong>' + recDisp + '</strong> ' + (recDisp === 1 ? 'ședință disponibilă' : 'ședințe disponibile') + ' pentru recuperare.</div>' : '')));
+      (sedinteLuna ? '<div style="margin-top:12px;">' +
+        '<div style="font-size:12px;color:#5A6169;margin-bottom:5px;">Efectuate <strong style="color:#111;">' + efectuate + '</strong> din <strong style="color:#111;">' + sedinteLuna + '</strong> ședințe <span style="float:right;color:#0B6B2E;font-weight:bold;">' + procent + '%</span></div>' +
+        '<div class="mx-bar">' + eProgress_(procent, C.lime) + '</div></div>' : '') +
+      (recDisp > 0 ? '<div style="margin-top:12px;padding:10px 13px;background:#FFF1E0;border-radius:8px;font-size:13px;color:#8A4B00;">🪃 Aveți <strong>' + recDisp + '</strong> ' + (recDisp === 1 ? 'ședință disponibilă' : 'ședințe disponibile') + ' pentru recuperare.</div>' : '')));
   }
 
-  // nota antrenorului
   if (String(a.infoInterne || '').trim()) {
-    h.push(eBox_(C.orange, 'Mesaj de la antrenor', '<em>„' + eHtml_(a.infoInterne) + '"</em>'));
+    h.push(eBox_(C.orange, 'Mesaj de la antrenor', '<em style="color:#3A4048;">„' + eHtml_(a.infoInterne) + '"</em>'));
   }
 
-  // buton
-  h.push('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:22px 0 6px 0;"><tr><td align="center">' +
-    '<a href="' + eHtml_(portal) + '" style="display:inline-block;background:' + C.cyan + ';color:#FFFFFF;text-decoration:none;font-size:15px;font-weight:bold;padding:14px 32px;border-radius:10px;">Vezi portalul părinților</a>' +
-    '</td></tr></table>');
-  h.push('<p style="margin:0;text-align:center;font-size:12px;color:#888;">Prezențe la zi, recuperări și anunțarea absențelor.</p>');
+  h.push('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0 8px 0;"><tr><td align="center">' +
+    '<table role="presentation" cellpadding="0" cellspacing="0" class="mx-cta" style="border-collapse:separate;"><tr>' +
+    '<td bgcolor="' + C.cyan + '" style="background:' + C.cyan + ';background-image:linear-gradient(180deg,#25C0F5 0%,' + C.cyan + ' 100%);border-radius:11px;border-bottom:4px solid ' + eUmbra_(C.cyan) + ';">' +
+    '<a href="' + eHtml_(portal) + '" style="display:inline-block;color:#FFFFFF;text-decoration:none;font-size:15px;font-weight:bold;padding:15px 34px;letter-spacing:.4px;">Vezi portalul părinților</a>' +
+    '</td></tr></table></td></tr></table>');
+  h.push('<p style="margin:0;text-align:center;font-size:12px;color:#8A9098;">Prezențe la zi, recuperări și anunțarea absențelor.</p>');
   h.push('</td></tr>');
 
-  // subsol
-  h.push('<tr><td bgcolor="#111111" style="background:#111111;padding:18px 28px;" align="center">' +
-    '<div style="color:#FFFFFF;font-size:13px;font-weight:bold;">' + eHtml_(CFG.CLUB) + '</div>' +
-    '<div style="color:#AAAAAA;font-size:12px;margin-top:5px;">' + eHtml_(CFG.PHONE) + ' · ' + eHtml_(CFG.EMAIL) + '</div>' +
-    '<div style="color:#666666;font-size:11px;margin-top:10px;">Primiți acest mesaj pentru că sunteți părintele unui sportiv înscris.<br>Pentru dezabonare, răspundeți la acest email.</div>' +
+  h.push('<tr><td bgcolor="#111111" style="background:#111111;padding:20px 28px;" align="center">' +
+    '<div style="color:#FFFFFF;font-size:13px;font-weight:bold;letter-spacing:1px;">' + eHtml_(CFG.CLUB) + '</div>' +
+    '<div style="color:#A8AEB4;font-size:12px;margin-top:6px;">' + eHtml_(CFG.PHONE) + ' · ' + eHtml_(CFG.EMAIL) + '</div>' +
+    '<div style="color:#5F666C;font-size:11px;margin-top:11px;line-height:1.5;">Primiți acest mesaj pentru că sunteți părintele unui sportiv înscris.<br>Pentru dezabonare, răspundeți la acest email.</div>' +
     '</td></tr>');
-
   h.push('</table></td></tr></table></body></html>');
 
-  /* ───────── Variantă text simplu ───────── */
   var t = [];
   t.push('Bună ziua!');
   t.push('');
-  t.push(type === 'reminder'
-    ? 'Abonamentul lui ' + a.prenume + ' pentru luna ' + monthText + '.'
-    : 'O nouă lună de antrenamente începe pentru ' + a.prenume + '.');
+  t.push(final ? 'ABONAMENTUL LUI ' + String(a.prenume).toUpperCase() + ' NU FIGUREAZĂ ACHITAT.'
+       : (type === 'reminder' ? 'Abonamentul lui ' + a.prenume + ' pentru luna ' + monthText + '.'
+                              : 'O nouă lună de antrenamente începe pentru ' + a.prenume + '.'));
+  if (final) {
+    t.push('');
+    t.push('Prima săptămână s-a încheiat, iar plata pentru ' + monthText + ' nu figurează efectuată.');
+    t.push('Conform regulamentului, participarea la antrenamente se suspendă până la regularizare.');
+    t.push('Dacă ați achitat deja, trimiteți-ne dovada — actualizăm imediat.');
+  }
   t.push('');
   t.push('SPORTIV: ' + a.numeComplet);
   t.push('Grupa: ' + (g.cat || '—') + (a.coach ? '  ·  Antrenor: ' + a.coach : ''));
@@ -1831,7 +2035,7 @@ function emailCompune_(type, a, luna, monthText) {
   if (sedinteLuna) t.push('Ședințe programate în această lună: ' + sedinteLuna);
   if (urm) t.push('Următorul antrenament: ' + urm.zi + ', ' + urm.data + (urm.ora ? ', ora ' + urm.ora : ''));
   t.push('');
-  if (type === 'reminder' || !achitat) {
+  if (type === 'reminder' || final || !achitat) {
     t.push('DE ACHITAT' + (tarifText ? ': ' + tarifText : ''));
     t.push('Termen: ' + scadenta);
     t.push('Beneficiar: ' + CFG.BANK.TITULAR);
@@ -1844,6 +2048,7 @@ function emailCompune_(type, a, luna, monthText) {
   if (prez + abs + rec > 0) {
     t.push('');
     t.push('SITUAȚIA DIN ' + String(monthText).toUpperCase() + ': ' + prez + ' prezențe, ' + abs + ' absențe, ' + rec + ' recuperate.');
+    if (sedinteLuna) t.push('Efectuate ' + efectuate + ' din ' + sedinteLuna + ' ședințe (' + procent + '%).');
     if (recDisp > 0) t.push('Aveți ' + recDisp + ' ședință/ședințe disponibile pentru recuperare.');
   }
   if (String(a.infoInterne || '').trim()) { t.push(''); t.push('MESAJ DE LA ANTRENOR: ' + a.infoInterne); }
@@ -1877,4 +2082,72 @@ function emailPreviewSablon() {
   var msg = emailCompune_(type, a, luna, monthLabel_(getWorkingMonth_()));
   var out = HtmlService.createHtmlOutput(msg.html).setWidth(680).setHeight(640);
   ui.showModalDialog(out, 'Previzualizare — ' + msg.subiect);
+}
+
+/* ═══════════════════════════ 9. CALENDAR PE SĂPTĂMÂNI COMPLETE ═══════════════════════════ */
+/*  Grila acoperă SĂPTĂMÂNI ÎNTREGI (luni→duminică) care ating luna de lucru — 4 sau 5,
+ *  după lună. Astfel coloanele coincid cu registrul brut al antrenorilor, care include
+ *  și zilele de la granița lunii (ex. 31 august și 1-2 octombrie pentru septembrie).
+ *  monthDays_ rămâne neschimbată: e folosită acolo unde contează strict luna.        */
+
+/**
+ * Intervalul afișat: de la LUNEA săptămânii primei zile de antrenament din lună,
+ * până DUMINICA săptămânii ultimei zile de antrenament din lună.
+ * Ancorarea pe zilele de antrenament (nu pe 1 / ultima zi a lunii) evită
+ * săptămânile fără niciun antrenament — noiembrie 2026 începe duminică, iar
+ * săptămâna 26–30 octombrie nu ar conține nicio zi de noiembrie.
+ */
+function gridRange_(monthStart, weekdays) {
+  var inLuna = monthDays_(monthStart, weekdays);
+  if (!inLuna.length) return null;
+  var f = inLuna[0], l = inLuna[inLuna.length - 1];
+  var dowF = (f.getDay() === 0) ? 7 : f.getDay();
+  var dowL = (l.getDay() === 0) ? 7 : l.getDay();
+  return {
+    start: new Date(f.getFullYear(), f.getMonth(), f.getDate() - (dowF - 1)),
+    end:   new Date(l.getFullYear(), l.getMonth(), l.getDate() + (7 - dowL))
+  };
+}
+
+/** Luni a primei săptămâni de antrenament — reperul pentru mementourile automate. */
+function primaLuniGrila_(monthStart, weekdays) {
+  var r = gridRange_(monthStart, weekdays || [1, 2, 3, 4, 5]);
+  return r ? r.start : null;
+}
+
+function numarSaptamani_(monthStart, weekdays) {
+  var r = gridRange_(monthStart, weekdays || [1, 2, 3, 4, 5]);
+  if (!r) return 0;
+  // start = luni, end = duminică  =>  durata este un multiplu exact de 7 zile
+  return Math.round(((r.end - r.start) / 86400000 + 1) / 7);
+}
+
+/** Zilele de antrenament din săptămânile complete ale lunii. */
+function monthGridDays_(monthStart, weekdays) {
+  var r = gridRange_(monthStart, weekdays);
+  if (!r) return [];
+  var out = [], d = new Date(r.start.getFullYear(), r.start.getMonth(), r.start.getDate());
+  while (d <= r.end) {
+    var wd = (d.getDay() === 0) ? 7 : d.getDay();
+    if (weekdays.indexOf(wd) > -1) out.push(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
+    d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+  }
+  return out;
+}
+
+/** Linie verticală groasă între săptămâni — grila se citește ca un calendar. */
+function markWeekBounds_(sh, dates, firstDayCol, lastRow) {
+  if (!dates.length) return;
+  var luniIdx = [];
+  for (var i = 1; i < dates.length; i++) {
+    var prev = dates[i - 1], cur = dates[i];
+    var zilePeste = Math.round((cur - prev) / 86400000);
+    var wdPrev = (prev.getDay() === 0) ? 7 : prev.getDay();
+    var wdCur  = (cur.getDay()  === 0) ? 7 : cur.getDay();
+    if (wdCur < wdPrev || zilePeste >= 3) luniIdx.push(i);   // a început o săptămână nouă
+  }
+  luniIdx.forEach(function (i) {
+    sh.getRange(LAY.dayRow, firstDayCol + i, lastRow - LAY.dayRow + 1, 1)
+      .setBorder(null, true, null, null, null, null, C.ink, SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+  });
 }

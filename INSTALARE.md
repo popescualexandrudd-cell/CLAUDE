@@ -203,6 +203,72 @@ Textele se modifică în `emailCompune_`.
 
 ---
 
+# Calendarul lunii
+
+Grila din foile de grupă acoperă **săptămâni întregi** (luni→vineri) care conțin
+zile de antrenament din lună — **4 sau 5, după lună**. Așa coincide cu registrul
+brut al antrenorilor, care include și zilele de la granița lunii.
+
+Exemple: septembrie 2026 → 5 săptămâni, 25 de coloane (`31 aug … 2 oct`);
+februarie 2027 → 4 săptămâni, 20 de coloane.
+
+Zilele din altă lună apar cu bandă estompată, iar între săptămâni există o linie
+verticală groasă. Titlul de sus arată luna, numărul de săptămâni și numărul de zile.
+
+**`2. Setează luna de lucru`** întreabă acum dacă recalculează imediat calendarul.
+Numele sportivilor se păstrează; prezențele se reimportă din registrul brut.
+
+> ⚠️ Înainte de această versiune, `3. Recalculează zilele din calendar` genera
+> doar zilele **din** lună (22 pentru septembrie, nu 25) și ar fi rupt
+> corespondența cu registrul brut la zilele de graniță.
+
+---
+
+# Trimitere automată a emailurilor
+
+`🎾 MASTERS → 🔐 Portal Părinți`:
+
+| Articol | Ce face |
+|---|---|
+| `📅 Plan trimiteri automate` | arată datele calculate pentru luna de lucru |
+| `⏰ ACTIVEAZĂ trimiterea automată` | creează declanșatorul zilnic (ora 9) |
+| `⏹️ OPREȘTE trimiterea automată` | îl șterge |
+
+Calendarul, pentru fiecare lună:
+
+- **Salut de lună nouă** — cu `CFG.EMAIL_ZILE_INAINTE` (2) zile înainte de
+  **lunea care deschide prima săptămână** de abonament. Pentru septembrie 2026,
+  prima săptămână începe luni 31 august, deci salutul pleacă sâmbătă 29 august.
+- **Memento de plată** — în **ultima zi lucrătoare a primei săptămâni** (vineri),
+  doar celor care nu figurează achitat. Acest mesaj conține avertizarea că
+  participarea se suspendă până la regularizare.
+
+Fiecare tip pleacă **o singură dată pe lună** (marcaj în proprietățile
+documentului). Trimiterea reală cere **și** `CFG.EMAIL_ON = true` — altfel
+declanșatorul rulează în gol.
+
+## Cele trei șabloane
+
+| Tip | Când | Particularitate |
+|---|---|---|
+| `monthly` | salut de lună nouă | fără avertizare |
+| `reminder` | manual, din meniu | ton neutru |
+| `reminder_final` | automat, finalul primei săptămâni | bloc roșu: participarea se suspendă |
+
+## Despre animații
+
+Casetele apar cu o intrare discretă, butonul pulsează, iar bara de progres crește.
+Acestea sunt **decorative** și funcționează în Apple Mail, iOS Mail și Outlook for
+Mac. Gmail web și Outlook pe Windows ignoră `<style>` — acolo mesajul arată
+identic, doar static. Tot ce este esențial (culori, relief, spațiere) este în
+stiluri inline, deci nu depinde de animații. Se respectă și
+`prefers-reduced-motion`.
+
+> Singura animație care merge peste tot în email este un GIF. Dacă vrei un
+> element animat garantat vizibil în Gmail, trebuie un GIF găzduit.
+
+---
+
 ## Ce NU este inclus
 
 **Rezervarea de recuperări (self-booking).** Îmi lipsesc două informații pe care

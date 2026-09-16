@@ -85,6 +85,90 @@ versiunea acceptată se înregistrează în `_SESIUNI`.
 
 ---
 
+# Faza 4 — funcții noi
+
+Trei foi noi se creează automat în registrul intermediar, la prima utilizare.
+**Fișierul-mamă al antrenorilor nu este atins niciodată.**
+
+| Foaie | Rol | Vizibilă |
+|---|---|---|
+| `CERERI PĂRINȚI` | absențele și vacanțele anunțate din portal | da |
+| `ANUNȚURI` | textul benzii derulante | da |
+| `_SESIUNI` | sesiunile active (Faza 1) | ascunsă |
+
+## Cereri de absență / vacanță
+
+Butoanele de WhatsApp existente fac acum două lucruri: deschid WhatsApp **ca până acum**
+și înregistrează cererea în `CERERI PĂRINȚI`. Părintele vede imediat
+`✅ Anunțat · ÎN AȘTEPTARE`, în locul butonului.
+
+Eligibilitatea se calculează automat:
+- **absență** — eligibilă dacă e anunțată cu cel puțin `CFG.CERERE_MIN_ORE` (24h) înainte;
+- **vacanță** — eligibilă dacă e anunțată cu cel puțin 7 zile înainte.
+
+Deschide lista din `🎾 MASTERS → 🔐 Portal Părinți → 📋 Cereri de la părinți`.
+Antrenorul rămâne singurul care scrie codul de prezență în fișierul-mamă;
+portalul doar îl anunță. Nicio sincronizare nu poate suprascrie o cerere.
+
+## Portofel de recuperări
+
+În cardul sportivului apare un rând nou, doar când soldul e pozitiv:
+
+> 🪃 RECUPERĂRI DISPONIBILE: **2** · prima expiră 1 octombrie
+
+Calculul e `E + B + AC` minus `R`, pe lunile încărcate, cu expirare la
+`CFG.REC_VALABIL_ZILE` (60 zile). Este **informativ** — decizia rămâne a antrenorului.
+
+## Acordul GDPR citit din formular
+
+Adaugă în Google Form un câmp **„Telefon"** (și, ideal, **„Email"**).
+Coloanele sunt găsite automat după antet — nu trebuie să atingi codul.
+
+De atunci, fereastra de acord nu mai apare părinților care chiar au completat
+formularul. Contează răspunsurile de după `CFG.GDPR_FORM_FROM`.
+
+> Fără câmpul „Telefon", totul funcționează exact ca înainte: acordurile colectate
+> pur și simplu nu pot fi atribuite unui sportiv anume.
+
+## Centru GDPR
+
+Link nou în subsol: **🔒 Datele mele & acordurile**. Arată ce acorduri sunt
+înregistrate, când, ce versiune, câte dispozitive sunt conectate — și permite
+retragerea acordului (revocă toate dispozitivele și lasă o solicitare în
+`CERERI PĂRINȚI`).
+
+## Anunțuri editabile
+
+`🎾 MASTERS → 🔐 Portal Părinți → 📣 Anunțuri afișate în portal`.
+Scrii textul, pui `DA`/`NU` pe coloana ACTIV, salvezi. Portalul le preia în
+maximum 10 minute — **fără republicare**. Dacă foaia e goală, rămâne textul
+implicit din `index.html`.
+
+## Memento de plată prin email
+
+`🎾 MASTERS → 🔐 Portal Părinți → ✉️ EMAIL: memento plată`.
+
+Pornește în **mod testare**: îți arată previzualizarea, nu trimite nimic.
+Pentru trimitere reală, pune `CFG.EMAIL_ON = true`.
+
+Necesită coloana „Email" în formular. Folosește `MailApp` (gratuit, ~100
+destinatari/zi pe un cont Gmail obișnuit — suficient pentru 100 de familii).
+
+---
+
+## Ce NU este inclus
+
+**Rezervarea de recuperări (self-booking).** Îmi lipsesc două informații pe care
+nu le pot deduce din date: **capacitatea fiecărei grupe** și regulile de
+recuperare (se poate doar în grupa proprie? în cât timp expiră?). Fără ele,
+sloturile libere nu pot fi calculate. Spune-mi valorile și o adaug.
+
+**Separarea notelor interne de mesajele către părinte.** Ar necesita o coloană
+nouă în fișierul-mamă, la care nu ai acces. Momentan, tot conținutul coloanei
+„Informații activitate" ajunge la părinte, ca și până acum.
+
+---
+
 ## Teste
 
 ```sh

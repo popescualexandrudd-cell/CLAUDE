@@ -82,7 +82,7 @@ function run(file) {
       DigestAlgorithm:{SHA_256:1}, Charset:{UTF_8:1} },
     ScriptApp: { getService: ()=> ({getUrl: ()=> ''}), getProjectTriggers: ()=> [] },
     DriveApp: { getFileById: ()=> ({ getLastUpdated: ()=> new Date(0), getName: ()=> 'X' }) },
-    LockService: { getScriptLock: ()=> ({ tryLock: ()=> true, releaseLock: ()=> {} }) },
+    LockService: { getScriptLock: ()=> ({ tryLock: ()=> true, waitLock: ()=> true, releaseLock: ()=> {} }) },
     UrlFetchApp:{}, HtmlService:{}, MailApp:{} });
   vm.runInContext(fs.readFileSync(file,'utf8'), ctx, { filename: file });
   vm.runInContext('importDataCore(SpreadsheetApp.getActiveSpreadsheet(), false);', ctx);

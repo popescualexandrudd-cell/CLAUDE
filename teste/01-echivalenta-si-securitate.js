@@ -95,7 +95,7 @@ function makeSandbox(sheets) {
       DigestAlgorithm: { SHA_256: 1 }, Charset: { UTF_8: 1 } },
     ScriptApp: { getService: () => ({ getUrl: () => 'https://script.google.com/macros/s/TEST/exec' }), getProjectTriggers: () => [] },
     DriveApp: { getFileById: () => ({ getLastUpdated: () => new Date(0), getName: () => 'PREZENTA CURSURI' }) },
-    LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }) },
+    LockService: { getScriptLock: () => ({ tryLock: () => true, waitLock: () => true, releaseLock: () => {} }) },
     UrlFetchApp: {}, HtmlService: {}, MailApp: {} };
 }
 
@@ -110,7 +110,19 @@ function load(file, sheets) {
 let fail = 0;
 const okmsg = m => console.log('  \x1b[32m✔\x1b[0m ' + m);
 const bad   = m => { fail++; console.log('  \x1b[31m✘\x1b[0m ' + m); };
-function eq(label, a, b) { JSON.stringify(a) === JSON.stringify(b) ? okmsg(label) : bad(label + '  (ieșiri diferite)'); }
+/* Faza 4 adaugă doar câmpuri NOI în payload. Verificăm două lucruri:
+   (1) tot ce exista înainte este neschimbat, (2) noile câmpuri sunt prezente. */
+const CAMPURI_NOI = ['recuperari_portofel', 'cereri'];
+function faraCampuriNoi(r) {
+  if (!r || !r.data) return r;
+  return { ...r, data: r.data.map(a => { const c = { ...a }; CAMPURI_NOI.forEach(k => delete c[k]); return c; }) };
+}
+function eq(label, a, b) {
+  const aditive = !b || !b.data || b.data.every(x => CAMPURI_NOI.every(k => k in x));
+  if (JSON.stringify(a) !== JSON.stringify(faraCampuriNoi(b))) { bad(label + '  (câmpuri existente modificate)'); return; }
+  if (!aditive) { bad(label + '  (câmpurile Fazei 4 lipsesc)'); return; }
+  okmsg(label + (b && b.data ? '  [+' + CAMPURI_NOI.length + ' câmpuri noi]' : ''));
+}
 function assert(label, cond) { cond ? okmsg(label) : bad(label); }
 const names = r => (r && r.data ? r.data.map(x => x.nume).sort() : (r && r.error ? ['ERR:' + r.error] : []));
 

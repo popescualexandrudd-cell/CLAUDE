@@ -290,6 +290,17 @@
       </div>
     </div>
 
+    <!-- POP-UP CENTRU GDPR -->
+    <div id="gdprcenter-modal" class="modal-overlay">
+      <div class="modal-box" id="gdprcenter-box">
+        <div class="modal-title">🔒 Datele mele</div>
+        <div class="modal-text" style="font-size:12px;">Situația acordurilor înregistrate pentru contul tău.</div>
+        <div id="gdprcenter-body" style="text-align:left; margin-bottom:18px;"></div>
+        <button class="btn-gdpr" onclick="closeGdprCenter()">Închide</button>
+        <button class="btn-close-modal" onclick="retrageAcordul()">Retrage acordul și deconectează-mă</button>
+      </div>
+    </div>
+
     <!-- POP-UP OFERTE BACK TO SCHOOL -->
     <div id="offers-modal" class="modal-overlay">
       <div class="modal-box" id="offers-box" style="max-width: 480px; text-align: left; padding: 25px;">
@@ -336,7 +347,8 @@
       <div class="legal-links">
         &copy; 2026 Club Tenis Masters.<br><br>
         <a href="https://docs.google.com/forms/d/e/1FAIpQLSc8W-bndjC6SX21BHz8IfUYrXDjhrKZoWsJutR87x2mOc0DtA/viewform?usp=dialog" target="_blank">Politica de Confidențialitate & GDPR</a><br><br>
-        <a href="https://drive.google.com/file/d/1OVLPptgruo4DEVvBv2CbHyYfFJtCy_or/view?usp=sharing" target="_blank" style="text-decoration: underline;">Regulament Club Tennis Masters</a>
+        <a href="https://drive.google.com/file/d/1OVLPptgruo4DEVvBv2CbHyYfFJtCy_or/view?usp=sharing" target="_blank" style="text-decoration: underline;">Regulament Club Tennis Masters</a><br><br>
+        <a href="javascript:void(0)" onclick="showGdprCenter()">🔒 Datele mele &amp; acordurile</a>
       </div>
     </div>
     
@@ -413,6 +425,102 @@
         return String(v == null ? '' : v)
           .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
           .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      }
+
+      /* ── FAZA 4 — cereri de absență/vacanță ── */
+
+      /* Împachetează o valoare pentru un atribut onclick construit prin concatenare. */
+      function attr(v) {
+        return "'" + String(v == null ? '' : v)
+          .replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;')
+          .replace(/</g, '&lt;').replace(/\r?\n/g, ' ') + "'";
+      }
+
+      /* Eticheta unei cereri deja trimise — înlocuiește butonul, în același loc. */
+      function statusCerere(c, extraStyle, titlu) {
+        var eligibil = !!c.eligibil;
+        var bg  = eligibil ? '#e8f5e9' : '#fff3e0';
+        var bd  = eligibil ? '#c8e6c9' : '#ffe0b2';
+        var fg  = eligibil ? '#2e7d32' : '#e65100';
+        var cap = titlu ? ('<strong>' + esc(titlu) + '</strong><br>') : '';
+        return '<div style="' + (extraStyle || '') + ' padding:10px; background:' + bg + '; border:1px solid ' + bd +
+               '; border-radius:8px; font-size:11px; font-weight:800; color:' + fg + ';">' + cap +
+               '✅ Anunțat · ' + esc(c.status) +
+               '<br><span style="font-weight:600; color:#666;">' +
+               (eligibil ? 'Eligibil pentru recuperare.' : 'Neeligibil pentru recuperare (anunțat târziu).') +
+               ' Confirmarea o face antrenorul.</span></div>';
+      }
+
+      /* Deschide WhatsApp (ca până acum) ȘI înregistrează cererea în foaia clubului. */
+      function trimiteCerere(el, sportiv, tip, dataVizata) {
+        if (!SESSION.token) return true;              // fără sesiune, se comportă exact ca înainte
+        if (el.getAttribute('data-trimis') === '1') return true;
+        el.setAttribute('data-trimis', '1');
+
+        google.script.run
+          .withSuccessHandler(function (r) {
+            if (r && r.success) {
+              var d = document.createElement('div');
+              d.innerHTML = statusCerere(r.cerere, 'margin-bottom:8px;', dataVizata);
+              if (el.parentNode) el.parentNode.replaceChild(d.firstChild, el);
+              Store.del('mastersCache');               // cache-ul local nu mai e la zi
+            } else {
+              el.removeAttribute('data-trimis');
+            }
+          })
+          .withFailureHandler(function () { el.removeAttribute('data-trimis'); })
+          .portalCerere(SESSION.token, sportiv, tip, dataVizata, '');
+
+        return true;                                   // linkul WhatsApp se deschide normal
+      }
+
+      /* ── FAZA 4 — Centrul GDPR ── */
+      function showGdprCenter() {
+        var modal = document.getElementById('gdprcenter-modal'), box = document.getElementById('gdprcenter-box');
+        var body = document.getElementById('gdprcenter-body');
+        body.innerHTML = '<p style="font-size:12px; color:#888;">Se încarcă…</p>';
+        modal.style.display = 'flex';
+        setTimeout(function(){ modal.style.opacity = '1'; box.style.transform = 'scale(1)'; }, 100);
+
+        if (!SESSION.token) {
+          body.innerHTML = '<p style="font-size:13px; color:#666;">Autentifică-te pentru a vedea acordurile înregistrate.</p>';
+          return;
+        }
+        google.script.run.withSuccessHandler(function (r) {
+          if (!r || r.error) { body.innerHTML = '<p style="font-size:13px; color:#d32f2f;">Nu am putut încărca datele.</p>'; return; }
+          var L = function (k, v) {
+            return '<div style="display:flex; justify-content:space-between; gap:10px; padding:8px 0; border-bottom:1px solid #f1f3f4; font-size:12px;">' +
+                   '<span style="color:#666; font-weight:600;">' + k + '</span>' +
+                   '<span style="color:#111; font-weight:800; text-align:right;">' + v + '</span></div>';
+          };
+          body.innerHTML =
+            L('Cont (telefon)', esc(r.telefon)) +
+            L('Formular GDPR completat', r.inFormular ? ('✅ Da' + (r.dataFormular ? ' · ' + esc(r.dataFormular) : '')) : '❌ Nu') +
+            L('Confirmat în portal', r.confirmatInPortal ? ('✅ ' + esc(r.confirmatInPortal)) : '—') +
+            L('Versiune acord', esc(r.versiune || '—') + ' / ' + esc(r.versiuneCurenta)) +
+            L('Dispozitive conectate', String(r.dispozitiveActive));
+        }).withFailureHandler(function () {
+          body.innerHTML = '<p style="font-size:13px; color:#d32f2f;">Eroare de conexiune.</p>';
+        }).portalGdprInfo(SESSION.token);
+      }
+
+      function closeGdprCenter() {
+        var modal = document.getElementById('gdprcenter-modal'), box = document.getElementById('gdprcenter-box');
+        modal.style.opacity = '0'; box.style.transform = 'scale(0.8)';
+        setTimeout(function(){ modal.style.display = 'none'; }, 400);
+      }
+
+      function retrageAcordul() {
+        if (!SESSION.token) return;
+        if (!confirm('Retragerea acordului te deconectează de pe toate dispozitivele și transmite clubului solicitarea ta.\n\nContinui?')) return;
+        google.script.run.withSuccessHandler(function () {
+          Store.del('mastersToken'); Store.del('mastersCache');
+          SESSION.token = '';
+          closeGdprCenter();
+          document.getElementById('athletes-container').innerHTML = '';
+          backToLogin();
+          showLoginError('Solicitarea a fost transmisă. Clubul te va contacta.');
+        }).portalGdprRetrage(SESSION.token);
       }
 
       /* Starea sesiunii: sursa de adevăr este serverul, nu browserul. */
@@ -527,6 +635,7 @@
         SESSION.gdprOk = !!res.gdprOk;
         SESSION.appUrl = res.appUrl || '';
         SESSION.installUrl = res.installUrl || '';
+        if (res.anunt) aplicaAnunt(res.anunt);
         Store.set('mastersCache', JSON.stringify(res.data));
         renderDashboard(res.data, false);
         afterAuth();
@@ -568,8 +677,13 @@
         return false;
       }
 
+      /* Anunțul vine din foaia ANUNȚURI; dacă e gol, rămâne textul implicit din SETARI. */
+      function aplicaAnunt(txt) {
+        try { document.getElementById('marquee-text').innerHTML = (txt && txt.length) ? txt : SETARI.ANUNT; } catch (e) {}
+      }
+
       function boot() {
-        try { document.getElementById('marquee-text').innerHTML = SETARI.ANUNT; } catch (e) {}
+        aplicaAnunt(BOOT && BOOT.anunt);
 
         var sp = Store.get('mastersSavedPhone'), sn = Store.get('mastersSavedName');
         if (sp) document.getElementById('phoneInput').value = sp;
@@ -674,6 +788,7 @@
             SESSION.gdprOk     = !!response.gdprOk;
             SESSION.appUrl     = response.appUrl || '';
             SESSION.installUrl = response.installUrl || '';
+            if (response.anunt) aplicaAnunt(response.anunt);
             if (remember) Store.set('mastersToken', response.token);
             Store.set('mastersCache', JSON.stringify(response.data));
             renderDashboard(response.data, false);
@@ -757,6 +872,10 @@
           var telefonWhatsApp = SETARI.TEL_DANIEL;
           if (String(ath.antrenor).toUpperCase().indexOf('BIANCA') > -1) telefonWhatsApp = SETARI.TEL_BIANCA;
 
+          // Cererile deja trimise pentru acest sportiv, indexate după data vizată.
+          var cereriPeZi = {};
+          (ath.cereri || []).forEach(function(c) { cereriPeZi[c.tip + '|' + c.data] = c; });
+
           var absenceHtml = '';
           if (!ath.inactiv) {
               absenceHtml += '<button onclick="toggleAbsence(this)" style="background:#fff; color:#d32f2f; box-shadow:none; padding:15px; font-size:11px; border:2px solid #ffcdd2; border-radius:10px; display:flex; justify-content:space-between; align-items:center; margin-bottom:5px; margin-top:20px;">';
@@ -797,8 +916,16 @@
               if (viitoare.length === 0) {
                    absenceHtml += '<p style="font-size:10px; color:#888;">Nu sunt antrenamente programate pentru a anunța vacanța.</p>';
               } else {
-                   var msgVacanta = encodeURIComponent("Salut! Vreau să anunț vacanță pentru " + ath.nume + " conform regulamentului (la începutul lunii sau cu min. 7 zile înainte).");
-                   absenceHtml += '<a href="https://wa.me/' + telefonWhatsApp + '?text=' + msgVacanta + '" target="_blank" style="display:block; padding:10px; background:#e3f2fd; color:#0d47a1; border:1px solid #bbdefb; border-radius:8px; font-size:11px; text-decoration:none; font-weight:800; text-align:center; margin-top:10px;">✈️ Trimite Notificare Vacanță pe WhatsApp</a>';
+                   var primaZiVac = futureWeekDays.length ? futureWeekDays[0] : viitoare[0].displayDate;
+                   var cerVac = cereriPeZi['VACANTA|' + primaZiVac];
+                   if (cerVac) {
+                       absenceHtml += statusCerere(cerVac, 'margin-top:10px;');
+                   } else {
+                       var msgVacanta = encodeURIComponent("Salut! Vreau să anunț vacanță pentru " + ath.nume + " conform regulamentului (la începutul lunii sau cu min. 7 zile înainte).");
+                       absenceHtml += '<a href="https://wa.me/' + telefonWhatsApp + '?text=' + msgVacanta + '" target="_blank"' +
+                           ' onclick="trimiteCerere(this, ' + attr(ath.nume) + ', \'VACANTA\', ' + attr(primaZiVac) + ')"' +
+                           ' style="display:block; padding:10px; background:#e3f2fd; color:#0d47a1; border:1px solid #bbdefb; border-radius:8px; font-size:11px; text-decoration:none; font-weight:800; text-align:center; margin-top:10px;">✈️ Trimite Notificare Vacanță pe WhatsApp</a>';
+                   }
               }
               absenceHtml += '</div>';
 
@@ -811,14 +938,21 @@
                      var tD = new Date(trainD.getFullYear(), trainD.getMonth(), trainD.getDate());
                      var diffD = Math.round((tD - aziD) / (1000 * 60 * 60 * 24));
 
-                     if(diffD === 0) {
+                     var cerZi = cereriPeZi['ABSENTA|' + zi.displayDate];
+                     if (cerZi) {
+                         absenceHtml += statusCerere(cerZi, 'margin-bottom:8px;', zi.displayDate);
+                     } else if(diffD === 0) {
                          absenceHtml += '<div style="margin-bottom:8px; padding:10px; background:#f8f9fa; border-radius:8px; font-size:11px; color:#888; border:1px solid #eee;"><strong>' + esc(zi.displayDate) + '</strong><br>Nu se poate anunța în aceeași zi.</div>';
                      } else if (diffD === 1) {
                          var msg = encodeURIComponent("Salut! " + ath.nume + " nu va putea ajunge la antrenamentul de mâine, " + zi.displayDate + ". Am anunțat sub 24h, neeligibil pentru recuperare.");
-                         absenceHtml += '<a href="https://wa.me/' + telefonWhatsApp + '?text=' + msg + '" target="_blank" style="display:block; margin-bottom:8px; padding:10px; background:#fff3e0; color:#e65100; border:1px solid #ffe0b2; border-radius:8px; font-size:11px; text-decoration:none; font-weight:800;"><strong>' + esc(zi.displayDate) + '</strong><br>↳ Anunță pe WA (Sub 24h)</a>';
+                         absenceHtml += '<a href="https://wa.me/' + telefonWhatsApp + '?text=' + msg + '" target="_blank"' +
+                             ' onclick="trimiteCerere(this, ' + attr(ath.nume) + ', \'ABSENTA\', ' + attr(zi.displayDate) + ')"' +
+                             ' style="display:block; margin-bottom:8px; padding:10px; background:#fff3e0; color:#e65100; border:1px solid #ffe0b2; border-radius:8px; font-size:11px; text-decoration:none; font-weight:800;"><strong>' + esc(zi.displayDate) + '</strong><br>↳ Anunță pe WA (Sub 24h)</a>';
                      } else {
                          var msg = encodeURIComponent("Salut! " + ath.nume + " nu va putea ajunge la antrenamentul din data de " + zi.displayDate + ". Am anunțat cu peste 24h înainte, eligibil pentru recuperare.");
-                         absenceHtml += '<a href="https://wa.me/' + telefonWhatsApp + '?text=' + msg + '" target="_blank" style="display:block; margin-bottom:8px; padding:10px; background:#e8f5e9; color:#2e7d32; border:1px solid #c8e6c9; border-radius:8px; font-size:11px; text-decoration:none; font-weight:800;"><strong>' + esc(zi.displayDate) + '</strong><br>↳ Anunță pe WA (Peste 24h)</a>';
+                         absenceHtml += '<a href="https://wa.me/' + telefonWhatsApp + '?text=' + msg + '" target="_blank"' +
+                             ' onclick="trimiteCerere(this, ' + attr(ath.nume) + ', \'ABSENTA\', ' + attr(zi.displayDate) + ')"' +
+                             ' style="display:block; margin-bottom:8px; padding:10px; background:#e8f5e9; color:#2e7d32; border:1px solid #c8e6c9; border-radius:8px; font-size:11px; text-decoration:none; font-weight:800;"><strong>' + esc(zi.displayDate) + '</strong><br>↳ Anunță pe WA (Peste 24h)</a>';
                      }
                   });
               } else {
@@ -847,6 +981,13 @@
               
               if (ath.programFix) { html += '<p class="card-subtitle" style="color: #111;">🕒 PROGRAM FIX: <span style="font-weight:900; color:#00AEEF;">' + esc(ath.programFix) + '</span></p>'; } 
               else if (ath.program) { html += '<p class="card-subtitle" style="color: #666;">🕒 PROGRAM: <span style="color:#111;">' + esc(ath.program) + '</span></p>'; } 
+
+              // Portofel de recuperări — aceeași clasă ca liniile de deasupra, fără CSS nou.
+              var pf = ath.recuperari_portofel;
+              if (pf && pf.disponibile > 0) {
+                html += '<p class="card-subtitle" style="color: #111;">🪃 RECUPERĂRI DISPONIBILE: <span style="font-weight:900; color:#F7941E;">' + pf.disponibile + '</span>' +
+                        (pf.expira ? ' <span style="color:#888; font-weight:600;">· prima expiră ' + esc(pf.expira) + '</span>' : '') + '</p>';
+              }
 
               if (ath.infoInterne && ath.infoInterne.trim() !== '') {
                   html += '<div style="background:#fff9e6; color:#111; padding:15px; border-radius:12px; margin-bottom:15px; font-size:13px; font-style:italic; font-weight:600; border: 1px solid #ffe0b2; border-left: 5px solid #F7941E; box-shadow: 0 2px 5px rgba(0,0,0,0.02);">';

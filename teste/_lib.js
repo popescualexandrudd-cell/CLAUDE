@@ -28,7 +28,7 @@ const CLEAN_SEP = [
   { nume:'IONESCU RARES',  coach:'DANIEL', contact:'0744 111 222', perWeek:3, marks:['V','P','P','P','P'], zileFixe:'', tarif:'400', dataPlata:'', metoda:'ACHITAT CASH', info:'' }
 ];
 const CLEAN_AUG = [
-  { nume:'POPESCU ANDREI', coach:'DANIEL', contact:'0723 028 164', perWeek:2, marks:['P','P','P','AB',''], zileFixe:'LUNI/MIERCURI 19:00-20:00', tarif:'300', dataPlata:'03.08.2026', metoda:'ACHITAT POS', info:'' }
+  { nume:'POPESCU ANDREI', coach:'DANIEL', contact:'0723 028 164', perWeek:2, marks:['P','E','E','R','P'], zileFixe:'LUNI/MIERCURI 19:00-20:00', tarif:'300', dataPlata:'03.08.2026', metoda:'ACHITAT POS', info:'' }
 ];
 
 /* Set MURDAR: formate reale din fișierul-mamă (puncte, două numere, celulă scurtă) */
@@ -93,7 +93,7 @@ function makeSandbox(sheets) {
       DigestAlgorithm: { SHA_256: 1 }, Charset: { UTF_8: 1 } },
     ScriptApp: { getService: () => ({ getUrl: () => 'https://script.google.com/macros/s/TEST/exec' }), getProjectTriggers: () => [] },
     DriveApp: { getFileById: () => ({ getLastUpdated: () => new Date(0), getName: () => 'PREZENTA CURSURI' }) },
-    LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }) },
+    LockService: { getScriptLock: () => ({ tryLock: () => true, waitLock: () => true, releaseLock: () => {} }) },
     UrlFetchApp: {}, HtmlService: {}, MailApp: {} };
 }
 
@@ -107,14 +107,53 @@ function load(file, sheets) {
 
 
 const SHEETS=[mkSheet('SEPTEMBRIE 2026_PREZENTA', CLEAN_SEP), mkSheet('AUGUST 2026_PREZENTA', CLEAN_AUG)];
-module.exports.load = function(file){
+/* Foaie în memorie, suficientă pentru foile proprii ale portalului. */
+function memSheet2(name, seed){
+  const cells = (seed || []).map(r => r.slice());
+  const at = (r,c) => { while (cells.length < r) cells.push([]); const row = cells[r-1]; while (row.length < c) row.push(''); return row; };
+  const api = {
+    getName: () => name,
+    getLastRow: () => cells.length,
+    getLastColumn: () => cells.reduce((m,r)=> Math.max(m, r.length), 0),
+    setFrozenRows: ()=>api, hideSheet: ()=>api, showSheet: ()=>api,
+    setColumnWidth: ()=>api, setColumnWidths: ()=>api,
+    appendRow: v => { cells.push(v.slice()); },
+    deleteRow: r => { cells.splice(r-1,1); },
+    getRange: (r,c,nR,nC) => { nR=nR||1; nC=nC||1;
+      const g = {
+        getValues: () => { const o=[]; for(let i=0;i<nR;i++){ at(r+i,c+nC-1); o.push(cells[r+i-1].slice(c-1,c-1+nC)); } return o; },
+        setValues: v => { for(let i=0;i<nR;i++){ const row=at(r+i,c+nC-1); for(let j=0;j<nC;j++) row[c-1+j]=v[i][j]; } return g; },
+        setValue: v => g.setValues(Array.from({length:nR},()=> new Array(nC).fill(v))),
+        setFontWeight:()=>g, setBackground:()=>g, setFontColor:()=>g,
+        setHorizontalAlignment:()=>g, setDataValidation:()=>g
+      };
+      return g; }
+  };
+  return api;
+}
+module.exports.memSheet2 = memSheet2;
+
+module.exports.load = function(file, containerSeed){
   const sb = makeSandbox(SHEETS);
+  const cont = {};
+  Object.keys(containerSeed || {}).forEach(k => cont[k] = memSheet2(k, containerSeed[k]));
+  sb.SpreadsheetApp.getActiveSpreadsheet = () => ({
+    getId: () => 'CONTAINER_ID',
+    getSheetByName: n => cont[n] || null,
+    insertSheet: n => (cont[n] = memSheet2(n, [])),
+    getSheets: () => Object.keys(cont).map(k => cont[k]),
+    setActiveSheet: ()=>{}, toast: ()=>{}
+  });
+  sb.SpreadsheetApp.newDataValidation = () => ({ requireValueInList(){return this;}, setAllowInvalid(){return this;}, build(){return {};} });
+  sb.__cont = cont;
   sb.HtmlService = {
     createTemplateFromFile: () => ({ BOOT:'', evaluate(){ sb.__LAST__ = this.BOOT; const o={setTitle:()=>o,setFaviconUrl:()=>o,addMetaTag:()=>o,setXFrameOptionsMode:()=>o}; return o; } }),
     XFrameOptionsMode:{ALLOWALL:1}
   };
   const ctx=vm.createContext(sb);
   vm.runInContext(fs.readFileSync(file,'utf8'),ctx,{filename:file});
+  const T = new Date(2026, 8, 3, 12, 0, 0).getTime();
+  vm.runInContext(`Date = (function(R,T){ function D(...a){ return a.length ? new R(...a) : new R(T); } D.prototype=R.prototype; D.now=()=>T; return D; })(Date, ${T});`, ctx);
   vm.runInContext('function lastTemplate(x){ return __LAST__; }',ctx);
   return ctx;
 };

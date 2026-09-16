@@ -23,7 +23,13 @@ var CFG = {
   SNAPSHOT_TTL_SEC:  900,        // 15 min = prospețimea maximă a datelor afișate în portal
   MAX_ARCHIVE_MONTHS: 8,         // câte luni se încarcă în memoria cache
   LOGIN_MAX_ATTEMPTS: 10,        // încercări eșuate permise per număr de telefon
-  LOGIN_WINDOW_SEC:   900        // fereastra de rate-limiting (15 min)
+  LOGIN_WINDOW_SEC:   900,       // fereastra de rate-limiting (15 min)
+
+  /* ── FAZA 4: cereri, acorduri, anunțuri, email ── */
+  EMAIL_ON:        false,        // false = mod testare: se afișează previzualizarea, nu se trimite nimic
+  GDPR_FORM_FROM:  '2026-01-01', // răspunsurile la formular de după această dată contează drept acord valid
+  CERERE_MIN_ORE:  24,           // cu câte ore înainte trebuie anunțată o absență pentru recuperare
+  REC_VALABIL_ZILE: 60           // câte zile rămâne valabilă o recuperare
 };
 
 var C = { cyan:'#00AEEF', magenta:'#EC008C', orange:'#F7941E', lime:'#C4D600', ink:'#111111', ink2:'#2B2B2B', white:'#FFFFFF', grey:'#F1F3F4', greyDk:'#9AA0A6' };
@@ -82,6 +88,12 @@ function onOpen() {
       .addItem('🔁 Reconstruiește memoria cache', 'portalRebuildCache')
       .addItem('🧹 Curăță sesiunile expirate', 'portalCleanSessions')
       .addItem('🩺 Diagnostic portal', 'portalDiagnostic')
+      .addSeparator()
+      .addItem('📋 Cereri de la părinți', 'portalCereriDeschide')
+      .addItem('📣 Anunțuri afișate în portal', 'portalAnunturiDeschide')
+      .addSeparator()
+      .addItem('✉️ EMAIL: memento plată', 'emailSendReminder')
+      .addItem('✉️ EMAIL: salut lună nouă', 'emailSendMonthly')
     ).addToUi();
 }
 
@@ -414,7 +426,8 @@ var LUNI_RO = ['IANUARIE','FEBRUARIE','MARTIE','APRILIE','MAI','IUNIE','IULIE','
  * și fără să depindă de localStorage (blocat în PWA pe iOS).
  */
 function doGet(e) {
-  var boot = { token: '', gdprOk: false, gdprVersion: CFG.GDPR_VERSION, appUrl: portalAppUrl_(), installUrl: '', data: null };
+  var boot = { token: '', gdprOk: false, gdprVersion: CFG.GDPR_VERSION, appUrl: portalAppUrl_(), installUrl: '', anunt: '', data: null };
+  try { boot.anunt = getAnunturi_(); } catch (err) {}
   try {
     var t = (e && e.parameter && e.parameter.t) ? String(e.parameter.t).trim() : '';
     if (t) {
@@ -527,6 +540,7 @@ function getAthleteData(phone) {
 /** Compune răspunsul pentru portal din snapshot. Formatul returnat este identic cu cel anterior. */
 function composeAthleteData_(snap, ph, azi) {
   var allFound = {}, curName = snap.curSheet;
+  var cereriPh = cereriPentruTelefon_(ph);
 
   snap.months.forEach(function(mo) {
     mo.ath.forEach(function(a) {
@@ -587,7 +601,10 @@ function composeAthleteData_(snap, ph, azi) {
               inactiv: esteInactivLunaCurenta, luna: athData.mainData.lunaSursa, arhive: arhiveFinale,
               sedinteTarget: sedinteTarget, programFix: programFixLabel_(a, g), sedinteEfectuate: sedinteEfectuate, procentProgramFix: procentProgramFix,
               infoInterne: a.infoInterne || '',
-              istoricCurent: athData.mainData.istoric || []
+              istoricCurent: athData.mainData.istoric || [],
+              /* ── FAZA 4 ── */
+              recuperari_portofel: portofelRecuperari_(athData.archiveList, azi),
+              cereri: (cereriPh[normName_(a.numeComplet)] || [])
           });
       }
   });
@@ -847,10 +864,13 @@ function sessValidate_(token) {
   var exp = (v[5] instanceof Date) ? v[5].getTime() : Number(v[5] || 0);
   if (exp && Date.now() > exp) return null;
 
+  var tel = normPhone_(v[1]);
   var sess = {
-    telefon: normPhone_(v[1]),
+    telefon: tel,
     prenume: String(v[2] || ''),
-    gdprOk: (String(v[8] || '') === String(CFG.GDPR_VERSION)),
+    // Acordul e valabil dacă a fost confirmat în portal pentru versiunea curentă
+    // SAU dacă părintele chiar a completat formularul (dovada din foaia de răspunsuri).
+    gdprOk: (String(v[8] || '') === String(CFG.GDPR_VERSION)) || gdprDinFormular_(tel),
     exp: exp
   };
   cachePutObj_(ck, sess, 21600);
@@ -938,8 +958,9 @@ function portalLogin(phone, prenume, device) {
     token: token,
     appUrl: appUrl,
     installUrl: appUrl ? (appUrl + '?t=' + encodeURIComponent(token)) : '',
-    gdprOk: false,
+    gdprOk: gdprDinFormular_(ph),          // dacă a completat deja formularul, nu îl mai deranjăm
     gdprVersion: CFG.GDPR_VERSION,
+    anunt: getAnunturi_(),
     data: (res && res.success) ? res.data : []
   };
 }
@@ -959,6 +980,7 @@ function portalRefresh(token) {
     gdprVersion: CFG.GDPR_VERSION,
     appUrl: appUrl,
     installUrl: appUrl ? (appUrl + '?t=' + encodeURIComponent(token)) : '',
+    anunt: getAnunturi_(),
     data: res.data
   };
 }
@@ -1018,4 +1040,438 @@ function portalDiagnostic() {
   out.push('Sincronizări automate active: ' + tri.length);
 
   ui.alert('🩺 DIAGNOSTIC PORTAL\n\n' + out.join('\n'));
+}
+
+/* ═══════════════════════════ 7. FAZA 4: CERERI, ACORDURI, ANUNȚURI ═══════════════════════════ */
+/*  Tot ce scrie portalul ajunge EXCLUSIV în foi proprii, din registrul intermediar.
+ *  Fișierul-mamă al antrenorilor nu este atins niciodată, iar sincronizarea nu poate
+ *  suprascrie nimic din ce introduce un părinte.                                     */
+
+/* ─────────── 7.1 Cereri de la părinți (absență / vacanță) ─────────── */
+
+var CERERI_ = {
+  SHEET: 'CERERI PĂRINȚI',
+  HDR: ['ID', 'Trimis la', 'Telefon', 'Sportiv', 'Tip', 'Data vizată', 'Eligibil recuperare', 'Detalii', 'Status']
+};
+
+function cereriSheet_() {
+  var ss = portalSS_(), sh = ss.getSheetByName(CERERI_.SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(CERERI_.SHEET);
+    sh.getRange(1, 1, 1, CERERI_.HDR.length).setValues([CERERI_.HDR])
+      .setBackground(C.ink).setFontColor(C.white).setFontWeight('bold').setHorizontalAlignment('center');
+    sh.setFrozenRows(1);
+    sh.setColumnWidth(1, 90); sh.setColumnWidth(2, 140); sh.setColumnWidth(3, 110);
+    sh.setColumnWidth(4, 190); sh.setColumnWidth(5, 90);  sh.setColumnWidth(6, 110);
+    sh.setColumnWidth(7, 140); sh.setColumnWidth(8, 260); sh.setColumnWidth(9, 120);
+  }
+  return sh;
+}
+
+function cereriAll_() {
+  var hit = cacheGetObj_('CERERI');
+  if (hit) return hit;
+  var sh = cereriSheet_(), last = sh.getLastRow();
+  var rows = (last < 2) ? [] : sh.getRange(2, 1, last - 1, CERERI_.HDR.length).getValues().map(function (v) {
+    return {
+      id: String(v[0]),
+      ts: (v[1] instanceof Date) ? v[1].getTime() : Number(v[1] || 0),
+      tel: normPhone_(v[2]),
+      sportiv: normName_(v[3]),
+      tip: String(v[4] || ''),
+      data: String(v[5] || ''),
+      eligibil: (v[6] === true || String(v[6]).toUpperCase() === 'DA' || String(v[6]).toUpperCase() === 'TRUE'),
+      detalii: String(v[7] || ''),
+      status: String(v[8] || 'ÎN AȘTEPTARE')
+    };
+  });
+  cachePutObj_('CERERI', rows, 300);
+  return rows;
+}
+
+/** Cererile unui părinte, grupate pe numele normalizat al sportivului. */
+function cereriPentruTelefon_(ph) {
+  var out = {};
+  try {
+    cereriAll_().forEach(function (c) {
+      if (c.tel !== ph) return;
+      if (String(c.status).toUpperCase().indexOf('ANULAT') > -1) return;
+      if (!out[c.sportiv]) out[c.sportiv] = [];
+      out[c.sportiv].push({ id: c.id, tip: c.tip, data: c.data, status: c.status, eligibil: c.eligibil });
+    });
+  } catch (err) {}
+  return out;
+}
+
+/**
+ * Înregistrează o cerere trimisă din portal.
+ * NU scrie în grilele de prezențe și NU atinge fișierul-mamă — doar foaia proprie.
+ * Antrenorul rămâne singurul care decide codul de prezență.
+ */
+function portalCerere(token, sportiv, tip, dataVizata, detalii) {
+  var sess = sessValidate_(token);
+  if (!sess) return { error: 'SESIUNE_EXPIRATA' };
+
+  tip = String(tip || '').toUpperCase();
+  if (tip !== 'ABSENTA' && tip !== 'VACANTA') return { error: 'Tip de cerere necunoscut.' };
+  if (!String(sportiv || '').trim()) return { error: 'Sportiv nespecificat.' };
+
+  // Sportivul trebuie să aparțină chiar acestui părinte.
+  var res = getAthleteData(sess.telefon);
+  if (!res || !res.success) return { error: 'Nu am putut verifica sportivul.' };
+  var alMeu = false, tinta = normName_(sportiv);
+  res.data.forEach(function (a) { if (normName_(a.nume) === tinta) alMeu = true; });
+  if (!alMeu) return { error: 'Sportivul nu este asociat acestui cont.' };
+
+  var dv = String(dataVizata || '').trim();
+
+  // Anti-duplicat: aceeași dată, același tip, același sportiv.
+  var dejaExista = false;
+  cereriAll_().forEach(function (c) {
+    if (c.tel === sess.telefon && c.sportiv === tinta && c.tip === tip && c.data === dv &&
+        String(c.status).toUpperCase().indexOf('ANULAT') === -1) dejaExista = true;
+  });
+  if (dejaExista) return { error: 'DUPLICAT', mesaj: 'Ai anunțat deja această dată.' };
+
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(15000); } catch (err) { return { error: 'Sistem ocupat. Reîncearcă în câteva secunde.' }; }
+  try {
+    var eligibil = cerereEsteEligibila_(tip, dv, res.data, tinta);
+    var id = 'C' + String(Date.now()).slice(-9);
+    cereriSheet_().appendRow([
+      id, new Date(), sess.telefon, String(sportiv).trim(), tip, dv,
+      eligibil ? 'DA' : 'NU', String(detalii || '').substring(0, 300), 'ÎN AȘTEPTARE'
+    ]);
+    cacheDrop_('CERERI');
+    return { success: true, cerere: { id: id, tip: tip, data: dv, status: 'ÎN AȘTEPTARE', eligibil: eligibil } };
+  } finally { lock.releaseLock(); }
+}
+
+/** Regula de eligibilitate: absență cu min. CERERE_MIN_ORE înainte; vacanță cu min. 7 zile. */
+function cerereEsteEligibila_(tip, dataVizata, athleteList, numeNorm) {
+  var tsAntrenament = 0;
+  athleteList.forEach(function (a) {
+    if (normName_(a.nume) !== numeNorm) return;
+    (a.istoricCurent || []).forEach(function (z) { if (z.displayDate === dataVizata) tsAntrenament = z.timestamp; });
+  });
+  if (!tsAntrenament) return false;
+  var ore = (tsAntrenament - Date.now()) / 3600000;
+  return (tip === 'VACANTA') ? (ore >= 7 * 24) : (ore >= CFG.CERERE_MIN_ORE);
+}
+
+function portalAnuleazaCerere(token, id) {
+  var sess = sessValidate_(token);
+  if (!sess) return { error: 'SESIUNE_EXPIRATA' };
+  var sh = cereriSheet_(), last = sh.getLastRow();
+  if (last < 2) return { error: 'Cererea nu a fost găsită.' };
+  var vals = sh.getRange(2, 1, last - 1, CERERI_.HDR.length).getValues();
+  for (var i = 0; i < vals.length; i++) {
+    if (String(vals[i][0]) === String(id) && normPhone_(vals[i][2]) === sess.telefon) {
+      sh.getRange(i + 2, 9).setValue('ANULAT DE PĂRINTE');
+      cacheDrop_('CERERI');
+      return { success: true };
+    }
+  }
+  return { error: 'Cererea nu a fost găsită.' };
+}
+
+/* ─────────── 7.2 Portofelul de recuperări ─────────── */
+
+/**
+ * Sold informativ de recuperări: ședințele eligibile (E / B / AC) minus cele deja
+ * recuperate (R), pe lunile încărcate. Este o estimare din datele existente —
+ * decizia finală rămâne a antrenorului.
+ */
+function portofelRecuperari_(archiveList, azi) {
+  var eligibile = 0, folosite = 0, ceaMaiVeche = 0;
+  var limita = Date.now() - CFG.REC_VALABIL_ZILE * 86400000;
+
+  (archiveList || []).forEach(function (item) {
+    ((item.obj && item.obj.istoric) || []).forEach(function (z) {
+      if (z.cod === 'R') { folosite++; return; }
+      if (z.cod === 'E' || z.cod === 'B' || z.cod === 'AC') {
+        if (z.timestamp < limita) return;                 // expirată
+        eligibile++;
+        if (!ceaMaiVeche || z.timestamp < ceaMaiVeche) ceaMaiVeche = z.timestamp;
+      }
+    });
+  });
+
+  var disponibile = Math.max(0, eligibile - folosite);
+  var expira = '';
+  if (disponibile > 0 && ceaMaiVeche) {
+    var d = new Date(ceaMaiVeche + CFG.REC_VALABIL_ZILE * 86400000);
+    expira = d.getDate() + ' ' + LUNI_RO[d.getMonth()].toLowerCase();
+  }
+  return { eligibile: eligibile, folosite: folosite, disponibile: disponibile, expira: expira };
+}
+
+/* ─────────── 7.3 Acordul GDPR citit din formular ─────────── */
+
+/** Găsește foaia cu răspunsurile formularului, oricum ar fi denumită. */
+function formSheet_() {
+  var ss = portalSS_(), sheets = ss.getSheets();
+  for (var i = 0; i < sheets.length; i++) {
+    var n = stripDia_(sheets[i].getName());
+    if (n.indexOf('RASPUNSURI') > -1 || n.indexOf('FORM') > -1) return sheets[i];
+  }
+  return null;
+}
+
+/**
+ * Index telefon -> { ts, email } din răspunsurile la formular.
+ * Coloanele sunt detectate după antet, deci formularul poate fi extins fără a atinge codul.
+ * Dacă nu există coloană de telefon, întoarce null (portalul revine la comportamentul anterior).
+ */
+function formIndex_() {
+  var hit = cacheGetObj_('FORMIDX');
+  if (hit) return hit.absent ? null : hit;
+
+  var sh = formSheet_();
+  if (!sh || sh.getLastRow() < 2) { cachePutObj_('FORMIDX', { absent: true }, 600); return null; }
+
+  var lastCol = sh.getLastColumn();
+  var hdr = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return stripDia_(h); });
+  var cTel = -1, cMail = -1, cTs = -1;
+  for (var c = 0; c < hdr.length; c++) {
+    var h = hdr[c];
+    if (cTel < 0 && (h.indexOf('TELEFON') > -1 || h.indexOf('CONTACT') > -1 || h.indexOf('PHONE') > -1)) cTel = c;
+    if (cMail < 0 && (h.indexOf('EMAIL') > -1 || h.indexOf('E-MAIL') > -1 || h.indexOf('ADRESA DE MAIL') > -1)) cMail = c;
+    if (cTs < 0 && (h.indexOf('MARCAJ DE TIMP') > -1 || h.indexOf('TIMESTAMP') > -1)) cTs = c;
+  }
+  if (cTel < 0) { cachePutObj_('FORMIDX', { absent: true }, 600); return null; }
+
+  var vals = sh.getRange(2, 1, sh.getLastRow() - 1, lastCol).getValues();
+  var idx = { map: {} };
+  vals.forEach(function (v) {
+    var ph = normPhone_(v[cTel]);
+    if (!ph) return;
+    var ts = (cTs > -1) ? parseAnyDate_(v[cTs]) : 0;
+    var prev = idx.map[ph];
+    if (!prev || ts > prev.ts) idx.map[ph] = { ts: ts, email: (cMail > -1 ? String(v[cMail] || '').trim() : '') };
+  });
+  cachePutObj_('FORMIDX', idx, 600);
+  return idx;
+}
+
+/**
+ * Marcaj de timp tolerant: obiect Date, text ISO, sau formatul românesc
+ * „15.08.2026 22:30:56" folosit de Google Forms. Întoarce 0 dacă nu poate fi citit.
+ */
+function parseAnyDate_(v) {
+  if (v instanceof Date) return v.getTime();
+  var t = String(v == null ? '' : v).trim();
+  if (!t) return 0;
+  var m = t.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})(?:[ ,]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (m) return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]),
+                         Number(m[4] || 0), Number(m[5] || 0), Number(m[6] || 0)).getTime();
+  var p = Date.parse(t);
+  return isNaN(p) ? 0 : p;
+}
+
+/** true dacă părintele a completat efectiv formularul după data-prag configurată. */
+function gdprDinFormular_(ph) {
+  try {
+    var idx = formIndex_();
+    if (!idx || !idx.map) return false;
+    var rec = idx.map[ph];
+    if (!rec) return false;
+    var prag = new Date(CFG.GDPR_FORM_FROM + 'T00:00:00').getTime();
+    return !rec.ts || rec.ts >= prag;
+  } catch (err) { return false; }
+}
+
+function emailDinFormular_(ph) {
+  try { var idx = formIndex_(); return (idx && idx.map && idx.map[ph]) ? idx.map[ph].email : ''; }
+  catch (err) { return ''; }
+}
+
+/** Detaliile de consimțământ afișate în Centrul GDPR din portal. */
+function portalGdprInfo(token) {
+  var sess = sessValidate_(token);
+  if (!sess) return { error: 'SESIUNE_EXPIRATA' };
+
+  var inFormular = gdprDinFormular_(sess.telefon);
+  var dataFormular = '';
+  try {
+    var idx = formIndex_();
+    if (idx && idx.map && idx.map[sess.telefon] && idx.map[sess.telefon].ts) {
+      var d = new Date(idx.map[sess.telefon].ts);
+      dataFormular = pad2_(d.getDate()) + '.' + pad2_(d.getMonth() + 1) + '.' + d.getFullYear();
+    }
+  } catch (err) {}
+
+  var confirmatInPortal = '', versiune = '';
+  var found = sessFindRow_(sha256Hex_(token));
+  if (found) {
+    versiune = String(found.v[8] || '');
+    if (found.v[9] instanceof Date) {
+      var g = found.v[9];
+      confirmatInPortal = pad2_(g.getDate()) + '.' + pad2_(g.getMonth() + 1) + '.' + g.getFullYear();
+    }
+  }
+
+  return {
+    success: true,
+    telefon: '••• ••• ' + String(sess.telefon).slice(-3),
+    inFormular: inFormular,
+    dataFormular: dataFormular,
+    confirmatInPortal: confirmatInPortal,
+    versiune: versiune,
+    versiuneCurenta: CFG.GDPR_VERSION,
+    dispozitiveActive: sessNumarDispozitive_(sess.telefon)
+  };
+}
+
+function sessNumarDispozitive_(ph) {
+  try {
+    var sh = sessSheet_(), last = sh.getLastRow();
+    if (last < 2) return 0;
+    var vals = sh.getRange(2, 1, last - 1, SESS_.HDR.length).getValues(), n = 0;
+    vals.forEach(function (v) {
+      var activ = (v[7] === true || String(v[7]).toUpperCase() === 'TRUE');
+      var exp = (v[5] instanceof Date) ? v[5].getTime() : 0;
+      if (activ && normPhone_(v[1]) === ph && (!exp || Date.now() < exp)) n++;
+    });
+    return n;
+  } catch (err) { return 0; }
+}
+
+/** Dreptul de retragere: revocă toate dispozitivele și înregistrează cererea. */
+function portalGdprRetrage(token) {
+  var sess = sessValidate_(token);
+  if (!sess) return { error: 'SESIUNE_EXPIRATA' };
+  try {
+    cereriSheet_().appendRow(['G' + String(Date.now()).slice(-9), new Date(), sess.telefon, '(toți sportivii)',
+      'GDPR', '', '', 'Retragerea consimțământului, solicitată din portal', 'ÎN AȘTEPTARE']);
+    cacheDrop_('CERERI');
+  } catch (err) {}
+
+  var sh = sessSheet_(), last = sh.getLastRow(), n = 0;
+  if (last >= 2) {
+    var vals = sh.getRange(2, 1, last - 1, SESS_.HDR.length).getValues();
+    for (var i = 0; i < vals.length; i++) {
+      if (normPhone_(vals[i][1]) === sess.telefon) {
+        sh.getRange(i + 2, 8).setValue(false);
+        cacheDrop_('SESS_' + String(vals[i][0]));
+        n++;
+      }
+    }
+  }
+  return { success: true, dispozitiveRevocate: n };
+}
+
+/* ─────────── 7.4 Anunțuri editabile din foaie ─────────── */
+
+var ANUNT_SHEET_ = 'ANUNȚURI';
+
+function anunturiSheet_() {
+  var ss = portalSS_(), sh = ss.getSheetByName(ANUNT_SHEET_);
+  if (!sh) {
+    sh = ss.insertSheet(ANUNT_SHEET_);
+    sh.getRange(1, 1, 1, 2).setValues([['TEXT ANUNȚ', 'ACTIV']])
+      .setBackground(C.ink).setFontColor(C.white).setFontWeight('bold');
+    sh.setFrozenRows(1); sh.setColumnWidth(1, 620); sh.setColumnWidth(2, 80);
+    sh.getRange(2, 1, 2, 2).setValues([
+      ['🎾 PLĂȚILE SE FAC PÂNĂ PE DATA DE 10 A FIECĂREI LUNI! VĂ MULȚUMIM!', 'DA'],
+      ['🎁 OFERTĂ 1+1: ADU UN PRIETEN ȘI AI LUNA URMĂTOARE 100% GRATUITĂ!', 'DA']
+    ]);
+    sh.getRange(2, 2, 200, 1).setDataValidation(
+      SpreadsheetApp.newDataValidation().requireValueInList(['DA', 'NU'], true).build());
+  }
+  return sh;
+}
+
+/** Textul benzii derulante. Șir gol => portalul păstrează textul său implicit. */
+function getAnunturi_() {
+  try {
+    var hit = cacheGetObj_('ANUNT');
+    if (hit) return hit.t;
+    var sh = anunturiSheet_(), last = sh.getLastRow();
+    var txt = '';
+    if (last >= 2) {
+      var vals = sh.getRange(2, 1, last - 1, 2).getValues(), parts = [];
+      vals.forEach(function (v) {
+        var t = String(v[0] || '').trim();
+        if (t && String(v[1] || 'DA').toUpperCase() !== 'NU') parts.push(t);
+      });
+      if (parts.length) {
+        var one = parts.join(' &nbsp;&nbsp;&nbsp; ⭐ &nbsp;&nbsp;&nbsp; ') + ' &nbsp;&nbsp;&nbsp; ⭐ &nbsp;&nbsp;&nbsp; ';
+        txt = one + one + one;
+      }
+    }
+    cachePutObj_('ANUNT', { t: txt }, 600);
+    return txt;
+  } catch (err) { return ''; }
+}
+
+/* ─────────── 7.5 Memento de plată prin email ─────────── */
+
+function emailSendReminder() { processEmailNotifications('reminder'); }
+function emailSendMonthly()  { processEmailNotifications('monthly'); }
+
+function processEmailNotifications(type) {
+  var ui = SpreadsheetApp.getUi(), monthText = monthLabel_(getWorkingMonth_());
+  if (!CFG.EMAIL_ON) ui.alert('🛠️ MOD TESTARE ACTIV 🛠️\n\nMesajele NU pleacă real.\nVei primi o previzualizare pe ecran.\n\nPentru trimitere reală: CFG.EMAIL_ON = true');
+
+  var idx = formIndex_();
+  if (!idx || !idx.map) {
+    ui.alert('Nu am găsit adrese de email.\n\nAdaugă în Google Form un câmp „Email" și unul „Telefon",\napoi reîncearcă. Coloanele sunt detectate automat după antet.');
+    return;
+  }
+
+  var snap = getSnapshot_(false);
+  if (!snap) { ui.alert('Nu am putut citi registrul brut.'); return; }
+
+  var curLuna = null;
+  snap.months.forEach(function (m) { if (m.name === snap.curSheet) curLuna = m; });
+  if (!curLuna) { ui.alert('Luna curentă nu a fost găsită în registrul brut.'); return; }
+
+  var trimise = 0, faraEmail = 0, preview = [];
+  curLuna.ath.forEach(function (a) {
+    if (type === 'reminder' && a.plata === 'Achitat') return;
+    var ph = (a.ph && a.ph.length) ? a.ph[0] : '';
+    if (!ph) return;
+    var email = (idx.map[ph] || {}).email || '';
+    if (!email || email.indexOf('@') < 0) { faraEmail++; return; }
+
+    var subiect, corp;
+    if (type === 'reminder') {
+      subiect = 'Club Tenis Masters — abonament ' + monthText;
+      corp = 'Bună ziua!\n\nSperăm că ' + a.prenume + ' a avut o lună bună pe teren.\n\n' +
+             'Vă reamintim de achitarea abonamentului pentru luna ' + monthText + '.\n\n' +
+             'Situația la zi a prezențelor o găsiți în portal:\n' + (portalAppUrl_() || CFG.PUBLIC_LINK) +
+             '\n\nO zi bună,\n' + CFG.CLUB + '\n' + CFG.PHONE;
+    } else {
+      subiect = 'Club Tenis Masters — început de ' + monthText;
+      corp = 'Bună ziua!\n\nO nouă lună de antrenamente începe pentru ' + a.prenume + '. 🎾\n\n' +
+             'Puteți urmări prezențele și evoluția în portal:\n' + (portalAppUrl_() || CFG.PUBLIC_LINK) +
+             '\n\nNumai bine,\n' + CFG.CLUB + '\n' + CFG.PHONE;
+    }
+
+    if (CFG.EMAIL_ON) { try { MailApp.sendEmail(email, subiect, corp); trimise++; } catch (err) {} }
+    else { trimise++; if (preview.length < 3) preview.push('Către: ' + email + '  (' + a.numeComplet + ')\n' + subiect); }
+  });
+
+  if (CFG.EMAIL_ON) ui.alert('✅ Emailuri trimise: ' + trimise + '\nSportivi fără adresă de email: ' + faraEmail);
+  else ui.alert('PREVIZUALIZARE (' + trimise + ' destinatari, ' + faraEmail + ' fără email):\n\n' +
+                (preview.join('\n\n---\n') || '(niciun destinatar eligibil)'));
+}
+
+/* ─────────── 7.6 Mentenanță Faza 4 ─────────── */
+
+function portalCereriDeschide() {
+  var sh = cereriSheet_();
+  try { sh.showSheet(); } catch (err) {}
+  SpreadsheetApp.getActiveSpreadsheet().setActiveSheet(sh);
+  var n = Math.max(0, sh.getLastRow() - 1);
+  SpreadsheetApp.getActiveSpreadsheet().toast('Cereri înregistrate: ' + n, 'CERERI PĂRINȚI', 5);
+}
+
+function portalAnunturiDeschide() {
+  var sh = anunturiSheet_();
+  try { sh.showSheet(); } catch (err) {}
+  SpreadsheetApp.getActiveSpreadsheet().setActiveSheet(sh);
+  cacheDrop_('ANUNT');
+  SpreadsheetApp.getActiveSpreadsheet().toast('Modifică textul, apoi salvează. Portalul preia în max. 10 minute.', 'ANUNȚURI', 6);
 }

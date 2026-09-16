@@ -75,42 +75,48 @@ function onOpen() {
   // Memorăm o dată ID-ul registrului: portalul (rulat ca aplicație web) are astfel
   // întotdeauna acces la foaia de sesiuni, chiar dacă sincronizarea nu a fost activată.
   try { props_().setProperty('TARGET_ID', SpreadsheetApp.getActiveSpreadsheet().getId()); } catch (err) {}
-  SpreadsheetApp.getUi().createMenu('🎾 MASTERS')
-    .addItem('1. Construiește sistemul complet', 'buildAll')
+
+  var ui = SpreadsheetApp.getUi();
+
+  // Sus rămân doar acțiunile de zi cu zi. Restul — configurare, întreținere,
+  // diagnostic — stau în „Avansat". Nicio funcție nu a fost eliminată.
+  ui.createMenu('🎾 MASTERS')
+    .addItem('🔄 Sincronizează acum', 'triggerManualSync')
+    .addItem('📅 Setează luna de lucru', 'setWorkingMonth')
     .addSeparator()
-    .addItem('2. Setează luna de lucru', 'setWorkingMonth')
-    .addItem('3. Recalculează zilele din calendar', 'refreshCalendar')
-    .addSeparator()
-    .addItem('4. Importă MANUAL datele din foaia brută', 'triggerManualSync')
-    .addSubMenu(SpreadsheetApp.getUi().createMenu('🔄 Sincronizare Automată')
-      .addItem('⚡ ACTIVEAZĂ Sync LIVE (la Editare)', 'installLiveSync')
-      .addItem('⏱️ ACTIVEAZĂ Sync la 5 MINUTE', 'installTimeSync')
-      .addItem('❌ DEZACTIVEAZĂ orice sincronizare', 'removeSyncs')
-    )
-    .addSeparator()
-    .addItem('5. Instrucțiuni distribuire', 'syncParentView')
-    .addSeparator()
-    .addSubMenu(SpreadsheetApp.getUi().createMenu('9. Notificări WhatsApp 💬')
-      .addItem('LUNA NOUĂ: Trimite mesaj de salut', 'waSendMonthly')
-      .addItem('MEMENTO: Trimite atenționare plată', 'waSendReminder')
-    )
-    .addSeparator()
-    .addSubMenu(SpreadsheetApp.getUi().createMenu('🔐 Portal Părinți')
-      .addItem('🔁 Reconstruiește memoria cache', 'portalRebuildCache')
-      .addItem('🧹 Curăță sesiunile expirate', 'portalCleanSessions')
-      .addItem('🩺 Diagnostic portal', 'portalDiagnostic')
+    .addSubMenu(ui.createMenu('✉️ Emailuri către părinți')
+      .addItem('👁️ Previzualizează șablonul', 'emailPreviewSablon')
       .addSeparator()
-      .addItem('📋 Cereri de la părinți', 'portalCereriDeschide')
-      .addItem('📣 Anunțuri afișate în portal', 'portalAnunturiDeschide')
-      .addSeparator()
-      .addItem('✉️ EMAIL: memento plată', 'emailSendReminder')
-      .addItem('✉️ EMAIL: salut lună nouă', 'emailSendMonthly')
-      .addItem('✉️ Verifică trimiterea de email', 'emailVerifica')
-      .addItem('👁️ Previzualizează șablonul de email', 'emailPreviewSablon')
+      .addItem('Trimite memento de plată', 'emailSendReminder')
+      .addItem('Trimite salut de lună nouă', 'emailSendMonthly')
       .addSeparator()
       .addItem('📅 Plan trimiteri automate', 'emailPlanArata')
       .addItem('⏰ ACTIVEAZĂ trimiterea automată', 'installEmailAuto')
       .addItem('⏹️ OPREȘTE trimiterea automată', 'removeEmailAuto')
+    )
+    .addItem('📋 Cereri de la părinți', 'portalCereriDeschide')
+    .addItem('📣 Anunțuri afișate în portal', 'portalAnunturiDeschide')
+    .addSeparator()
+    .addSubMenu(ui.createMenu('⚙️ Avansat')
+      .addItem('🔁 Reconstruiește memoria cache', 'portalRebuildCache')
+      .addItem('🩺 Diagnostic portal', 'portalDiagnostic')
+      .addItem('✉️ Verifică trimiterea de email', 'emailVerifica')
+      .addItem('🧹 Curăță sesiunile expirate', 'portalCleanSessions')
+      .addSeparator()
+      .addSubMenu(ui.createMenu('🔄 Sincronizare automată')
+        .addItem('⚡ ACTIVEAZĂ Sync LIVE (la editare)', 'installLiveSync')
+        .addItem('⏱️ ACTIVEAZĂ Sync la 5 minute', 'installTimeSync')
+        .addItem('❌ DEZACTIVEAZĂ orice sincronizare', 'removeSyncs')
+      )
+      .addItem('📐 Recalculează zilele din calendar', 'refreshCalendar')
+      .addSeparator()
+      .addSubMenu(ui.createMenu('💬 Notificări WhatsApp (inactiv)')
+        .addItem('LUNA NOUĂ: mesaj de salut', 'waSendMonthly')
+        .addItem('MEMENTO: atenționare plată', 'waSendReminder')
+      )
+      .addItem('📤 Instrucțiuni distribuire', 'syncParentView')
+      .addSeparator()
+      .addItem('🏗️ RECONSTRUIEȘTE TOT SISTEMUL', 'buildAll')
     ).addToUi();
 }
 
@@ -360,7 +366,21 @@ function normalizeCode_(v) { var ok = CODES.map(function (c) { return c.k; }); i
 function sheetName_(g) { return g.cat.substring(0, 10) + ' • ' + g.time.replace(/:00/g, '').replace('-', '-'); }
 
 /* ═══════════════════════════ 3. CONSTRUIRE HUB ADMIN ═══════════════════════════ */
-function buildAll() { var ss = SpreadsheetApp.getActiveSpreadsheet(), m = getWorkingMonth_(); buildCover_(ss, m); buildLegend_(ss); GROUPS.forEach(function (g) { buildGroupSheet_(ss, g, m); }); buildDashboard_(ss); var order = ['COPERTĂ', 'LEGENDĂ'].concat(GROUPS.map(sheetName_)).concat(['RAPORT']); order.forEach(function (n, i) { var sh = ss.getSheetByName(n); if (sh) { ss.setActiveSheet(sh); ss.moveActiveSheet(i + 1); } }); ss.setActiveSheet(ss.getSheetByName('COPERTĂ')); }
+function buildAll() {
+  // Reconstruirea șterge grilele de prezențe (numele sportivilor se păstrează).
+  // Acum e îngropată în „Avansat", deci confirmăm explicit înainte.
+  try {
+    var ui = SpreadsheetApp.getUi();
+    var r = ui.alert('RECONSTRUIEȘTE TOT SISTEMUL',
+      'Se refac de la zero COPERTĂ, LEGENDĂ, foile de grupă și RAPORT.\n\n' +
+      'Numele sportivilor se păstrează, dar PREZENȚELE DIN GRILE SE ȘTERG\n' +
+      'și trebuie reimportate din registrul brut.\n\nContinui?', ui.ButtonSet.YES_NO);
+    if (r !== ui.Button.YES) return;
+  } catch (err) {}
+  buildAll_();
+}
+
+function buildAll_() { var ss = SpreadsheetApp.getActiveSpreadsheet(), m = getWorkingMonth_(); buildCover_(ss, m); buildLegend_(ss); GROUPS.forEach(function (g) { buildGroupSheet_(ss, g, m); }); buildDashboard_(ss); var order = ['COPERTĂ', 'LEGENDĂ'].concat(GROUPS.map(sheetName_)).concat(['RAPORT']); order.forEach(function (n, i) { var sh = ss.getSheetByName(n); if (sh) { ss.setActiveSheet(sh); ss.moveActiveSheet(i + 1); } }); ss.setActiveSheet(ss.getSheetByName('COPERTĂ')); }
 function buildCover_(ss, m) { var sh = ss.getSheetByName('COPERTĂ') || ss.insertSheet('COPERTĂ', 0); sh.clear(); sh.clearConditionalFormatRules(); sh.setHiddenGridlines(true); sh.setColumnWidths(1, 26, 34); sh.setRowHeights(1, 40, 22); paintDiagonalBands_(sh, 1, 28, 1, 26); bevelBlock_(sh, 'F4:S6', CFG.CLUB, C.ink, C.white, 26); bevelBlock_(sh, 'F7:S8', CFG.SUB, C.lime, C.ink, 12); bevelBlock_(sh, 'F11:S12','REGISTRU DE PREZENȚE — ' + monthLabel_(m).toUpperCase(), C.magenta, C.white, 14); }
 function buildLegend_(ss) { var sh = ss.getSheetByName('LEGENDĂ') || ss.insertSheet('LEGENDĂ'); sh.clear(); sh.setHiddenGridlines(true); sh.setColumnWidths(1, 8, 120); paintDiagonalBands_(sh, 1, 4, 1, 8); bevelBlock_(sh, 'B2:G3', 'LEGENDĂ CODURI DE PREZENȚĂ', C.ink, C.white, 16); sh.getRange(6, 2, 1, 3).setValues([['COD', 'SEMNIFICAȚIE', 'CULOARE']]).setBackground(C.ink).setFontColor(C.white).setFontWeight('bold').setHorizontalAlignment('center'); CODES.forEach(function (c, i) { var r = 7 + i; sh.getRange(r, 2).setValue(c.k).setBackground(c.bg).setFontColor(c.fg).setFontWeight('bold').setHorizontalAlignment('center'); sh.getRange(r, 3).setValue(c.label).setFontWeight('bold'); sh.getRange(r, 4).setBackground(c.bg); }); }
 

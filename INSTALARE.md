@@ -203,6 +203,41 @@ Textele se modifică în `emailCompune_`.
 
 ---
 
+# Meniul 🎾 MASTERS
+
+Sus stau doar acțiunile de zi cu zi; configurarea, întreținerea și diagnosticul
+sunt în **⚙️ Avansat**. Nicio funcție nu a fost eliminată.
+
+```
+🎾 MASTERS
+├ 🔄 Sincronizează acum
+├ 📅 Setează luna de lucru
+├ ✉️ Emailuri către părinți ▸
+│   ├ 👁️ Previzualizează șablonul
+│   ├ Trimite memento de plată
+│   ├ Trimite salut de lună nouă
+│   ├ 📅 Plan trimiteri automate
+│   ├ ⏰ ACTIVEAZĂ trimiterea automată
+│   └ ⏹️ OPREȘTE trimiterea automată
+├ 📋 Cereri de la părinți
+├ 📣 Anunțuri afișate în portal
+└ ⚙️ Avansat ▸
+    ├ 🔁 Reconstruiește memoria cache
+    ├ 🩺 Diagnostic portal
+    ├ ✉️ Verifică trimiterea de email
+    ├ 🧹 Curăță sesiunile expirate
+    ├ 🔄 Sincronizare automată ▸
+    ├ 📐 Recalculează zilele din calendar
+    ├ 💬 Notificări WhatsApp (inactiv) ▸
+    ├ 📤 Instrucțiuni distribuire
+    └ 🏗️ RECONSTRUIEȘTE TOT SISTEMUL
+```
+
+`🏗️ RECONSTRUIEȘTE TOT SISTEMUL` cere acum o confirmare: șterge prezențele din
+grile (numele sportivilor se păstrează) și trebuie urmată de o sincronizare.
+
+---
+
 # Calendarul lunii
 
 Grila din foile de grupă acoperă **săptămâni întregi** (luni→vineri) care conțin

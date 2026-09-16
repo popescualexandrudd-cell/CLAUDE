@@ -1224,34 +1224,87 @@ function formSheet_() {
  * Dacă nu există coloană de telefon, întoarce null (portalul revine la comportamentul anterior).
  */
 function formIndex_() {
-  var hit = cacheGetObj_('FORMIDX');
+  var hit = cacheGetObj_('FORMIDX2');
   if (hit) return hit.absent ? null : hit;
 
   var sh = formSheet_();
-  if (!sh || sh.getLastRow() < 2) { cachePutObj_('FORMIDX', { absent: true }, 600); return null; }
+  if (!sh || sh.getLastRow() < 2) { cachePutObj_('FORMIDX2', { absent: true }, 600); return null; }
 
   var lastCol = sh.getLastColumn();
   var hdr = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return stripDia_(h); });
-  var cTel = -1, cMail = -1, cTs = -1;
+  var cTel = -1, cMail = -1, cTs = -1, cSport = -1;
   for (var c = 0; c < hdr.length; c++) {
     var h = hdr[c];
-    if (cTel < 0 && (h.indexOf('TELEFON') > -1 || h.indexOf('CONTACT') > -1 || h.indexOf('PHONE') > -1)) cTel = c;
-    if (cMail < 0 && (h.indexOf('EMAIL') > -1 || h.indexOf('E-MAIL') > -1 || h.indexOf('ADRESA DE MAIL') > -1)) cMail = c;
-    if (cTs < 0 && (h.indexOf('MARCAJ DE TIMP') > -1 || h.indexOf('TIMESTAMP') > -1)) cTs = c;
+    if (cTel   < 0 && (h.indexOf('TELEFON') > -1 || h.indexOf('CONTACT') > -1 || h.indexOf('PHONE') > -1)) cTel = c;
+    if (cMail  < 0 && (h.indexOf('EMAIL') > -1 || h.indexOf('E-MAIL') > -1 || h.indexOf('ADRESA DE MAIL') > -1)) cMail = c;
+    if (cTs    < 0 && (h.indexOf('MARCAJ DE TIMP') > -1 || h.indexOf('TIMESTAMP') > -1)) cTs = c;
+    // Numele sportivului este cheia cea mai sigură: numărul din formular aparține
+    // părintelui care l-a completat și poate diferi de cel scris de antrenor în CONTACT.
+    if (cSport < 0 && (h.indexOf('SPORTIV') > -1 || h.indexOf('COPIL') > -1)) cSport = c;
   }
-  if (cTel < 0) { cachePutObj_('FORMIDX', { absent: true }, 600); return null; }
+  if (cTel < 0 && cSport < 0) { cachePutObj_('FORMIDX2', { absent: true }, 600); return null; }
 
   var vals = sh.getRange(2, 1, sh.getLastRow() - 1, lastCol).getValues();
-  var idx = { map: {} };
+  var idx = { map: {}, byName: {} };
   vals.forEach(function (v) {
-    var ph = normPhone_(v[cTel]);
-    if (!ph) return;
     var ts = (cTs > -1) ? parseAnyDate_(v[cTs]) : 0;
-    var prev = idx.map[ph];
-    if (!prev || ts > prev.ts) idx.map[ph] = { ts: ts, email: (cMail > -1 ? String(v[cMail] || '').trim() : '') };
+    var rec = { ts: ts, email: (cMail > -1 ? String(v[cMail] || '').trim() : '') };
+
+    if (cTel > -1) {
+      var ph = normPhone_(v[cTel]);
+      if (ph && (!idx.map[ph] || ts > idx.map[ph].ts)) idx.map[ph] = rec;
+    }
+    if (cSport > -1) {
+      var nm = normName_(v[cSport]);
+      if (nm && (!idx.byName[nm] || ts > idx.byName[nm].ts)) idx.byName[nm] = rec;
+    }
   });
-  cachePutObj_('FORMIDX', idx, 600);
+  cachePutObj_('FORMIDX2', idx, 600);
   return idx;
+}
+
+/**
+ * Caută răspunsul la formular al unui sportiv: întâi după oricare dintre numerele
+ * din celula CONTACT, apoi după numele sportivului. Numele se compară și inversat
+ * („Ionescu Casian" ≡ „Casian Ionescu"), fiindcă ordinea diferă între surse.
+ */
+function formLookup_(phList, numeComplet) {
+  var idx = formIndex_();
+  if (!idx) return null;
+
+  var i;
+  for (i = 0; phList && i < phList.length; i++) {
+    if (idx.map[phList[i]]) return idx.map[phList[i]];
+  }
+
+  var nm = normName_(numeComplet);
+  if (!nm) return null;
+  if (idx.byName[nm]) return idx.byName[nm];
+
+  var toks = nm.split(' ');
+  if (toks.length >= 2) {
+    var inv = toks.slice(1).concat(toks[0]).join(' ');
+    if (idx.byName[inv]) return idx.byName[inv];
+    var inv2 = [toks[toks.length - 1]].concat(toks.slice(0, toks.length - 1)).join(' ');
+    if (idx.byName[inv2]) return idx.byName[inv2];
+  }
+  return null;
+}
+
+/** Numele sportivilor asociați unui număr de telefon (din snapshot-ul deja memorat). */
+function numeSportiviPentruTelefon_(ph) {
+  var out = [];
+  try {
+    var snap = getSnapshot_(false);
+    if (!snap) return out;
+    var vazut = {};
+    snap.months.forEach(function (mo) {
+      mo.ath.forEach(function (a) {
+        if (phoneMatchList_(ph, a.ph) && !vazut[a.numeComplet]) { vazut[a.numeComplet] = 1; out.push(a.numeComplet); }
+      });
+    });
+  } catch (err) {}
+  return out;
 }
 
 /**
@@ -1272,18 +1325,33 @@ function parseAnyDate_(v) {
 /** true dacă părintele a completat efectiv formularul după data-prag configurată. */
 function gdprDinFormular_(ph) {
   try {
-    var idx = formIndex_();
-    if (!idx || !idx.map) return false;
-    var rec = idx.map[ph];
-    if (!rec) return false;
     var prag = new Date(CFG.GDPR_FORM_FROM + 'T00:00:00').getTime();
-    return !rec.ts || rec.ts >= prag;
+    var valid = function (rec) { return !!rec && (!rec.ts || rec.ts >= prag); };
+
+    var rec = formLookup_([ph], '');
+    if (valid(rec)) return true;
+
+    // Formularul poate fi completat de un părinte al cărui număr nu e cel din
+    // registrul antrenorilor. Căutăm atunci după numele sportivilor acestui cont.
+    var nume = numeSportiviPentruTelefon_(ph);
+    for (var i = 0; i < nume.length; i++) {
+      if (valid(formLookup_(null, nume[i]))) return true;
+    }
+    return false;
   } catch (err) { return false; }
 }
 
-function emailDinFormular_(ph) {
-  try { var idx = formIndex_(); return (idx && idx.map && idx.map[ph]) ? idx.map[ph].email : ''; }
-  catch (err) { return ''; }
+function emailDinFormular_(ph, numeComplet) {
+  try {
+    var rec = formLookup_([ph], numeComplet || '');
+    if (rec && rec.email) return rec.email;
+    var nume = numeComplet ? [] : numeSportiviPentruTelefon_(ph);
+    for (var i = 0; i < nume.length; i++) {
+      var r2 = formLookup_(null, nume[i]);
+      if (r2 && r2.email) return r2.email;
+    }
+    return '';
+  } catch (err) { return ''; }
 }
 
 /** Detaliile de consimțământ afișate în Centrul GDPR din portal. */
@@ -1427,13 +1495,17 @@ function processEmailNotifications(type) {
   snap.months.forEach(function (m) { if (m.name === snap.curSheet) curLuna = m; });
   if (!curLuna) { ui.alert('Luna curentă nu a fost găsită în registrul brut.'); return; }
 
-  var trimise = 0, faraEmail = 0, preview = [];
+  var trimise = 0, faraEmail = 0, preview = [], lipsa = [];
   curLuna.ath.forEach(function (a) {
     if (type === 'reminder' && a.plata === 'Achitat') return;
-    var ph = (a.ph && a.ph.length) ? a.ph[0] : '';
-    if (!ph) return;
-    var email = (idx.map[ph] || {}).email || '';
-    if (!email || email.indexOf('@') < 0) { faraEmail++; return; }
+    // Se încearcă TOATE numerele din celula CONTACT, apoi numele sportivului.
+    var rec = formLookup_(a.ph, a.numeComplet);
+    var email = (rec && rec.email) ? rec.email : '';
+    if (!email || email.indexOf('@') < 0) {
+      faraEmail++;
+      if (lipsa.length < 12) lipsa.push('• ' + a.numeComplet + (a.ph && a.ph.length ? '  (' + a.ph[0] + ')' : ''));
+      return;
+    }
 
     var subiect, corp;
     if (type === 'reminder') {
@@ -1453,8 +1525,15 @@ function processEmailNotifications(type) {
     else { trimise++; if (preview.length < 3) preview.push('Către: ' + email + '  (' + a.numeComplet + ')\n' + subiect); }
   });
 
-  if (CFG.EMAIL_ON) ui.alert('✅ Emailuri trimise: ' + trimise + '\nSportivi fără adresă de email: ' + faraEmail);
-  else ui.alert('PREVIZUALIZARE (' + trimise + ' destinatari, ' + faraEmail + ' fără email):\n\n' +
+  var detaliuLipsa = lipsa.length
+    ? '\n\n── Fără răspuns la formular (' + faraEmail + ') ──\n' + lipsa.join('\n') +
+      (faraEmail > lipsa.length ? '\n… și încă ' + (faraEmail - lipsa.length) : '') +
+      '\n\nAcești părinți nu au completat încă formularul, sau numele sportivului\n' +
+      'din formular diferă de cel din registrul antrenorilor.'
+    : '';
+
+  if (CFG.EMAIL_ON) ui.alert('✅ Emailuri trimise: ' + trimise + detaliuLipsa);
+  else ui.alert('PREVIZUALIZARE — ' + trimise + ' destinatari' + detaliuLipsa + '\n\n' +
                 (preview.join('\n\n---\n') || '(niciun destinatar eligibil)'));
 }
 

@@ -124,6 +124,17 @@ Calculul e `E + B + AC` minus `R`, pe lunile încărcate, cu expirare la
 Adaugă în Google Form un câmp **„Telefon"** (și, ideal, **„Email"**).
 Coloanele sunt găsite automat după antet — nu trebuie să atingi codul.
 
+Potrivirea se face în două trepte, fiindcă numărul completat de părinte în
+formular este adesea altul decât cel scris de antrenor în coloana CONTACT:
+
+1. **după telefon** — se încearcă *toate* numerele din celula CONTACT;
+2. **după numele sportivului** — inclusiv cu ordinea inversată
+   („Ionescu Casian" ≡ „Casian Ionescu").
+
+De aceea contează ca numele completat în formular să fie scris la fel ca în
+registrul antrenorilor. Dacă diferă complet (poreclă, prenume lipsă), potrivirea
+nu se poate face — iar previzualizarea de email îți listează exact acei sportivi.
+
 De atunci, fereastra de acord nu mai apare părinților care chiar au completat
 formularul. Contează răspunsurile de după `CFG.GDPR_FORM_FROM`.
 

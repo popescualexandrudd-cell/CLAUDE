@@ -103,5 +103,43 @@ console.log('\n\x1b[1mK. Anunțuri editabile din foaie\x1b[0m');
     !!vm.runInContext('portalLogin("0723028164","Andrei","ua").anunt', ctx));
 }
 
+console.log('\n\x1b[1mL. Potrivirea formular ↔ registru (cazul real din producție)\x1b[0m');
+{
+  /* Situația din captură: părintele completează formularul cu PROPRIUL număr,
+     diferit de cel scris de antrenor în coloana CONTACT. Cheia sigură e numele. */
+  const ALT_TEL = [
+    ['Marcaj de timp','Nume și Prenume Părinte','Nume și Prenume Sportiv (Copil)','Telefon','Email'],
+    ['16.09.2026 12:50:21','Popescu Alex','Popescu Andrei','0726409988','alex@exemplu.ro']
+  ];
+  const ctx = LIB.load('cod.gs.txt', { 'Form_Responses': ALT_TEL });
+  A('Telefon diferit, dar numele sportivului se potrivește → acord recunoscut',
+    vm.runInContext('gdprDinFormular_("723028164")', ctx) === true);
+  A('Emailul este găsit prin numele sportivului',
+    vm.runInContext('emailDinFormular_("723028164","POPESCU ANDREI")', ctx) === 'alex@exemplu.ro');
+  A('Sportiv fără răspuns la formular → fără email',
+    vm.runInContext('emailDinFormular_("744111222","IONESCU RARES")', ctx) === '');
+
+  /* Ordinea nume/prenume diferă adesea între formular și registru. */
+  const INV = [ALT_TEL[0], ['16.09.2026 12:50:21','X','Andrei Popescu','0799999999','inv@exemplu.ro']];
+  const ci = LIB.load('cod.gs.txt', { 'Form_Responses': INV });
+  A('Nume inversat („Andrei Popescu" ≡ „Popescu Andrei") → recunoscut',
+    vm.runInContext('emailDinFormular_("723028164","POPESCU ANDREI")', ci) === 'inv@exemplu.ro');
+
+  /* Al doilea număr dintr-o celulă CONTACT cu două numere. */
+  const AL2 = [ALT_TEL[0], ['16.09.2026 12:50:21','X','Nu Conteaza','0755 333 444','doi@exemplu.ro']];
+  const c2 = LIB.load('cod.gs.txt', { 'Form_Responses': AL2 });
+  A('Al doilea număr din celula CONTACT este verificat, nu doar primul',
+    vm.runInContext('formLookup_(["744111222","755333444"],"").email', c2) === 'doi@exemplu.ro');
+
+  /* Formular doar cu nume, fără coloană de telefon. */
+  const DOAR_NUME = [
+    ['Marcaj de timp','Nume și Prenume Sportiv (Copil)','Email'],
+    ['16.09.2026 12:50:21','Popescu Andrei','n@exemplu.ro']
+  ];
+  const cn = LIB.load('cod.gs.txt', { 'Form_Responses': DOAR_NUME });
+  A('Formular fără coloană de telefon, dar cu nume → funcționează',
+    vm.runInContext('emailDinFormular_("723028164","POPESCU ANDREI")', cn) === 'n@exemplu.ro');
+}
+
 console.log(fail ? '\n\x1b[31m'+fail+' eșec(uri)\x1b[0m\n' : '\n\x1b[32mToate testele Fazei 4 au trecut.\x1b[0m\n');
 process.exit(fail?1:0);

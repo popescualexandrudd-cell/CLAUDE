@@ -173,6 +173,34 @@ autorizare pentru `MailApp`, dacă nu a fost acordat încă.
 Dacă o trimitere eșuează, raportul îți arată adresa, sportivul și **motivul
 exact** al erorii.
 
+### Ce conține emailul
+
+HTML pe tabele, cu stiluri inline — singura formă care se afișează corect în
+Gmail, Outlook, Apple Mail și pe telefon. Fiecare mesaj are și o variantă text
+simplu, pentru clienții care nu afișează HTML.
+
+Secțiuni, în ordine:
+
+| Secțiune | Sursa datelor |
+|---|---|
+| Sportiv: grupă, antrenor, program, ședințe în lună | registrul brut |
+| **Următorul antrenament**: zi, dată, oră | calculat din „Zile Fixe" |
+| **De achitat**: sumă, termen, IBAN, referința de plată | coloana TARIF + `CFG.BANK` |
+| Situația lunii: prezențe / absențe / recuperate | grila de prezențe |
+| Recuperări disponibile | calculat |
+| Mesaj de la antrenor | coloana „Informații activitate" |
+| Buton către portal | — |
+
+Pentru un sportiv deja achitat, secțiunea de plată devine o confirmare verde,
+fără date bancare. Dacă în registru **nu există tarif**, emailul nu inventează
+nicio sumă — scrie că suma este comunicată de antrenor.
+
+Vezi cum arată, pe date reale, fără să trimiți nimic:
+`🎾 MASTERS → 🔐 Portal Părinți → 👁️ Previzualizează șablonul de email`.
+
+Datele bancare sunt în `CFG.BANK`, iar ziua scadentă în `CFG.ZI_SCADENTA`.
+Textele se modifică în `emailCompune_`.
+
 ---
 
 ## Ce NU este inclus

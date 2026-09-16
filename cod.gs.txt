@@ -29,7 +29,16 @@ var CFG = {
   EMAIL_ON:        false,        // false = mod testare: se afișează previzualizarea, nu se trimite nimic
   GDPR_FORM_FROM:  '2026-01-01', // răspunsurile la formular de după această dată contează drept acord valid
   CERERE_MIN_ORE:  24,           // cu câte ore înainte trebuie anunțată o absență pentru recuperare
-  REC_VALABIL_ZILE: 60           // câte zile rămâne valabilă o recuperare
+  REC_VALABIL_ZILE: 60,          // câte zile rămâne valabilă o recuperare
+
+  /* ── Date pentru emailurile către părinți ── */
+  ZI_SCADENTA: 10,               // ziua din lună până la care se achită abonamentul
+  BANK: {
+    TITULAR: 'Asociația Clubul Sportiv Tenis Masters',
+    IBAN:    'RO38BRDE441SV00151174410',
+    BANCA:   'BRD – Groupe Société Générale',
+    CUI:     '16391843'
+  }
 };
 
 var C = { cyan:'#00AEEF', magenta:'#EC008C', orange:'#F7941E', lime:'#C4D600', ink:'#111111', ink2:'#2B2B2B', white:'#FFFFFF', grey:'#F1F3F4', greyDk:'#9AA0A6' };
@@ -95,6 +104,7 @@ function onOpen() {
       .addItem('✉️ EMAIL: memento plată', 'emailSendReminder')
       .addItem('✉️ EMAIL: salut lună nouă', 'emailSendMonthly')
       .addItem('✉️ Verifică trimiterea de email', 'emailVerifica')
+      .addItem('👁️ Previzualizează șablonul de email', 'emailPreviewSablon')
     ).addToUi();
 }
 
@@ -616,7 +626,8 @@ function composeAthleteData_(snap, ph, azi) {
 }
 function pad2_(n) { n = String(n); return n.length < 2 ? '0' + n : n; }
 function extractOra_(txt, fallback) { var m = String(txt || '').match(/(\d{1,2})[.:h](\d{2})\s*[-–]\s*(\d{1,2})[.:h](\d{2})/); if (!m) return fallback || ''; return pad2_(m[1]) + ':' + m[2] + '-' + pad2_(m[3]) + ':' + m[4]; }
-function formatZileFixe_(txt) { var s = String(txt || '').toUpperCase().replace(/(\d{1,2})[.:h](\d{2})\s*[-–]\s*(\d{1,2})[.:h](\d{2})/g, '').trim(); if (!s) return ''; var map = { 'LUNI':'Luni','MARTI':'Marți','MARȚI':'Marți','MIERCURI':'Miercuri','JOI':'Joi','VINERI':'Vineri','SAMBATA':'Sâmbătă','SÂMBĂTĂ':'Sâmbătă','L':'Luni','MA':'Marți','MI':'Miercuri','J':'Joi','V':'Vineri' }; var out = []; s.split(/[\/,\-–|+]+/).forEach(function(p) { p = p.trim(); if (map[p] && out.indexOf(map[p]) === -1) out.push(map[p]); }); return out.join(', '); }
+function formatZileFixe_(txt) { var s = String(txt || '').toUpperCase().replace(/(\d{1,2})[.:h](\d{2})\s*[-–]\s*(\d{1,2})[.:h](\d{2})/g, '').trim(); if (!s) return ''; var map = { 'LUNI':'Luni','MARTI':'Marți','MARȚI':'Marți','MIERCURI':'Miercuri','JOI':'Joi','VINERI':'Vineri','SAMBATA':'Sâmbătă','SÂMBĂTĂ':'Sâmbătă','L':'Luni','MA':'Marți','MI':'Miercuri','J':'Joi','V':'Vineri',
+                'LU':'Luni','MAR':'Marți','MIE':'Miercuri','MIER':'Miercuri','JO':'Joi','VI':'Vineri','VIN':'Vineri','S':'Sâmbătă','SA':'Sâmbătă','SAM':'Sâmbătă' }; var out = []; s.split(/[\/,\-–|+]+/).forEach(function(p) { p = p.trim(); if (map[p] && out.indexOf(map[p]) === -1) out.push(map[p]); }); return out.join(', '); }
 function programFixLabel_(a, g) { var zile = formatZileFixe_(a.zileFixe); var ora  = extractOra_(a.zileFixe, '') || (g ? g.time : ''); if (!zile && !ora) return ''; return (zile || 'Program club') + (ora ? ' ' + ora : ''); }
 /* ═══════════════════════════ 6. INFRASTRUCTURĂ PORTAL ═══════════════════════════ */
 /*  Sesiuni persistente, consimțământ GDPR pe server, memorie cache comprimată,
@@ -1508,27 +1519,18 @@ function processEmailNotifications(type) {
       return;
     }
 
-    var subiect, corp;
-    if (type === 'reminder') {
-      subiect = 'Club Tenis Masters — abonament ' + monthText;
-      corp = 'Bună ziua!\n\nSperăm că ' + a.prenume + ' a avut o lună bună pe teren.\n\n' +
-             'Vă reamintim de achitarea abonamentului pentru luna ' + monthText + '.\n\n' +
-             'Situația la zi a prezențelor o găsiți în portal:\n' + (portalAppUrl_() || CFG.PUBLIC_LINK) +
-             '\n\nO zi bună,\n' + CFG.CLUB + '\n' + CFG.PHONE;
-    } else {
-      subiect = 'Club Tenis Masters — început de ' + monthText;
-      corp = 'Bună ziua!\n\nO nouă lună de antrenamente începe pentru ' + a.prenume + '. 🎾\n\n' +
-             'Puteți urmări prezențele și evoluția în portal:\n' + (portalAppUrl_() || CFG.PUBLIC_LINK) +
-             '\n\nNumai bine,\n' + CFG.CLUB + '\n' + CFG.PHONE;
-    }
+    var msg = emailCompune_(type, a, curLuna, monthText);
 
     eligibili++;
     if (CFG.EMAIL_ON) {
       // Orice eșec este raportat, nu înghițit: altfel vezi „trimise: 0" fără niciun motiv.
-      try { MailApp.sendEmail(email, subiect, corp); trimise++; }
+      try {
+        MailApp.sendEmail({ to: email, subject: msg.subiect, body: msg.text, htmlBody: msg.html, name: CFG.CLUB });
+        trimise++;
+      }
       catch (err) { esecuri.push('• ' + email + '  (' + a.numeComplet + ')\n   ↳ ' + (err && err.message ? err.message : String(err))); }
     } else {
-      if (preview.length < 3) preview.push('Către: ' + email + '  (' + a.numeComplet + ')\n' + subiect);
+      if (preview.length < 3) preview.push('Către: ' + email + '  (' + a.numeComplet + ')\n' + msg.subiect);
     }
   });
 
@@ -1614,4 +1616,265 @@ function portalAnunturiDeschide() {
   SpreadsheetApp.getActiveSpreadsheet().setActiveSheet(sh);
   cacheDrop_('ANUNT');
   SpreadsheetApp.getActiveSpreadsheet().toast('Modifică textul, apoi salvează. Portalul preia în max. 10 minute.', 'ANUNȚURI', 6);
+}
+
+/* ═══════════════════════════ 8. ȘABLON DE EMAIL ═══════════════════════════ */
+/*  HTML pe tabele, cu stiluri inline — singura formă care se afișează corect
+ *  în Gmail, Outlook, Apple Mail și pe telefon. Fiecare email are și o
+ *  variantă text simplu, pentru clienții care nu afișează HTML.              */
+
+var ZI_RO_ = ['', 'Luni', 'Marți', 'Miercuri', 'Joi', 'Vineri', 'Sâmbătă', 'Duminică'];
+
+/** Zilele de antrenament ale unui sportiv, ca numere (1 = luni). */
+function zileFixeWeekdays_(zileFixe, g) {
+  // „L-V" (formă prescurtată, cu o singură literă la fiecare capăt) înseamnă
+  // TOT intervalul, nu două zile. Se verifică înainte de interpretarea ca listă,
+  // fiindcă în restul datelor liniuța separă zile („LUNI – MARȚI – MIERCURI").
+  var fara = stripDia_(zileFixe).replace(/\d{1,2}[.:H]\d{2}\s*[-–]\s*\d{1,2}[.:H]\d{2}/g, '').trim();
+  var rng = fara.match(/^([LMJVSD])\s*[-–]\s*([LMJVSD])$/);
+  if (rng) {
+    var CAP = { 'L': 1, 'J': 4, 'V': 5, 'S': 6, 'D': 7 };
+    var a = CAP[rng[1]], b = CAP[rng[2]];
+    if (a && b && a < b) { var o = []; for (var i = a; i <= b; i++) o.push(i); return o; }
+  }
+
+  var eticheta = formatZileFixe_(zileFixe);
+  var out = [];
+  if (eticheta) {
+    eticheta.split(',').forEach(function (p) {
+      var k = ZI_RO_.indexOf(p.trim());
+      if (k > 0 && out.indexOf(k) === -1) out.push(k);
+    });
+  }
+  if (!out.length && g && g.days) out = g.days.slice();
+  out.sort(function (x, y) { return x - y; });
+  return out;
+}
+
+/** Următorul antrenament, începând de azi. Caută maximum 2 luni înainte. */
+function urmatorulAntrenament_(a, g, dela) {
+  var wd = zileFixeWeekdays_(a.zileFixe, g);
+  if (!wd.length) return null;
+  var ora = extractOra_(a.zileFixe, '') || (g ? g.time : '');
+  var baza = new Date(dela.getFullYear(), dela.getMonth(), dela.getDate());
+  for (var i = 0; i <= 62; i++) {
+    var x = new Date(baza.getFullYear(), baza.getMonth(), baza.getDate() + i);
+    var w = (x.getDay() === 0) ? 7 : x.getDay();
+    if (wd.indexOf(w) > -1) {
+      return { zi: ZI_RO_[w], data: x.getDate() + ' ' + LUNI_RO[x.getMonth()].toLowerCase(), ora: ora, peste: i };
+    }
+  }
+  return null;
+}
+
+function eHtml_(v) {
+  return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/** O casetă cu bară colorată în stânga. */
+function eBox_(accent, titlu, continut) {
+  return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 14px 0;border-collapse:separate;">' +
+    '<tr>' +
+      '<td width="4" bgcolor="' + accent + '" style="background:' + accent + ';width:4px;border-radius:3px 0 0 3px;">&nbsp;</td>' +
+      '<td bgcolor="#F7F9FB" style="background:#F7F9FB;padding:14px 16px;border-radius:0 8px 8px 0;">' +
+        (titlu ? '<div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:' + accent + ';margin-bottom:6px;">' + titlu + '</div>' : '') +
+        '<div style="font-size:15px;color:#111111;line-height:1.55;">' + continut + '</div>' +
+      '</td>' +
+    '</tr></table>';
+}
+
+/**
+ * Compune emailul pentru un sportiv.
+ * type: 'reminder' (memento de plată) sau 'monthly' (salut de lună nouă).
+ */
+function emailCompune_(type, a, luna, monthText) {
+  var g = matchGroup_(a.cat) || { cat: a.cat, time: '' };
+  var azi = new Date();
+  var urm = urmatorulAntrenament_(a, g, azi);
+  var wd = zileFixeWeekdays_(a.zileFixe, g);
+  var sedinteLuna = wd.length ? monthDays_(new Date(luna.y, luna.m, 1), wd).length : 0;
+
+  // Statistici din luna curentă
+  var ist = buildIstoric_(a, luna.y, luna.m, azi);
+  var prez = 0, abs = 0, rec = 0, elig = 0;
+  ist.forEach(function (z) {
+    if (z.cod === 'P') prez++;
+    else if (z.cod === 'AB') abs++;
+    else if (z.cod === 'R') rec++;
+    else if (z.cod === 'E' || z.cod === 'B' || z.cod === 'AC') elig++;
+  });
+  var recDisp = Math.max(0, elig - rec);
+
+  var tarif = String(a.tarif || '').trim();
+  var tarifText = '';
+  if (tarif) tarifText = /lei/i.test(tarif) ? tarif : (tarif + ' lei');
+
+  var achitat = (a.plata === 'Achitat');
+  var scadenta = CFG.ZI_SCADENTA + ' ' + LUNI_RO[luna.m].toLowerCase();
+  var program = programFixLabel_(a, g) || ((g.cat ? g.cat + ' ' : '') + (g.time || ''));
+  var portal = portalAppUrl_() || CFG.PUBLIC_LINK;
+  var refPlata = a.numeComplet + ' – luna ' + String(monthText).toLowerCase();
+
+  var subiect = (type === 'reminder')
+    ? ('Abonament ' + monthText + ' — ' + a.prenume + ' | ' + CFG.CLUB)
+    : (a.prenume + ' — programul lunii ' + monthText + ' | ' + CFG.CLUB);
+
+  /* ───────── HTML ───────── */
+  var h = [];
+  h.push('<!DOCTYPE html><html><head><meta charset="utf-8">');
+  h.push('<meta name="viewport" content="width=device-width,initial-scale=1"></head>');
+  h.push('<body style="margin:0;padding:0;background:#EEF1F4;">');
+  h.push('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#EEF1F4;padding:20px 10px;"><tr><td align="center">');
+  h.push('<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#FFFFFF;border-radius:14px;overflow:hidden;font-family:Helvetica,Arial,sans-serif;">');
+
+  // bandă de culori
+  h.push('<tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>' +
+    '<td height="6" bgcolor="' + C.cyan + '" style="height:6px;font-size:0;line-height:0;">&nbsp;</td>' +
+    '<td height="6" bgcolor="' + C.magenta + '" style="height:6px;font-size:0;line-height:0;">&nbsp;</td>' +
+    '<td height="6" bgcolor="' + C.orange + '" style="height:6px;font-size:0;line-height:0;">&nbsp;</td>' +
+    '<td height="6" bgcolor="' + C.lime + '" style="height:6px;font-size:0;line-height:0;">&nbsp;</td>' +
+    '</tr></table></td></tr>');
+
+  // antet
+  h.push('<tr><td bgcolor="#111111" style="background:#111111;padding:24px 28px;" align="center">' +
+    (CFG.LOGO_URL ? '<img src="' + eHtml_(CFG.LOGO_URL) + '" width="64" alt="" style="display:block;margin:0 auto 10px auto;border:0;">' : '') +
+    '<div style="color:#FFFFFF;font-size:19px;font-weight:bold;letter-spacing:2px;">' + eHtml_(CFG.CLUB) + '</div>' +
+    '<div style="color:' + C.lime + ';font-size:11px;letter-spacing:1px;text-transform:uppercase;margin-top:4px;">' + eHtml_(CFG.SUB) + '</div>' +
+    '</td></tr>');
+
+  h.push('<tr><td style="padding:28px;">');
+  h.push('<p style="margin:0 0 4px 0;font-size:15px;color:#555;">Bună ziua!</p>');
+  h.push('<h1 style="margin:0 0 18px 0;font-size:22px;color:#111111;line-height:1.3;">' +
+    (type === 'reminder'
+      ? 'Abonamentul lui ' + eHtml_(a.prenume) + ' pentru ' + eHtml_(monthText)
+      : 'O lună nouă începe pentru ' + eHtml_(a.prenume) + ' 🎾') + '</h1>');
+
+  // sportiv
+  h.push(eBox_(C.cyan, 'Sportiv',
+    '<strong style="font-size:16px;">' + eHtml_(a.numeComplet) + '</strong><br>' +
+    '<span style="color:#555;">Grupa <strong>' + eHtml_(g.cat || '—') + '</strong>' +
+    (a.coach ? ' · Antrenor <strong>' + eHtml_(a.coach) + '</strong>' : '') + '</span><br>' +
+    '<span style="color:#555;">Program: <strong>' + eHtml_(program || '—') + '</strong></span>' +
+    (sedinteLuna ? '<br><span style="color:#555;">' + sedinteLuna + ' ședințe programate în ' + eHtml_(monthText.split(' ')[0].toLowerCase()) + '</span>' : '')));
+
+  // următorul antrenament
+  if (urm) {
+    var cand = (urm.peste === 0) ? 'Astăzi' : (urm.peste === 1 ? 'Mâine' : urm.zi);
+    h.push(eBox_(C.lime, 'Următorul antrenament',
+      '<strong style="font-size:17px;">' + eHtml_(cand) + ', ' + eHtml_(urm.data) + '</strong>' +
+      (urm.ora ? '<br><span style="color:#555;">Ora ' + eHtml_(urm.ora) + '</span>' : '')));
+  }
+
+  // plată
+  if (type === 'reminder' || !achitat) {
+    var plata = '';
+    if (tarifText) plata += '<span style="font-size:24px;font-weight:bold;color:' + C.magenta + ';">' + eHtml_(tarifText) + '</span><br>';
+    plata += '<span style="color:#555;">Termen de plată: <strong>' + eHtml_(scadenta) + '</strong></span>';
+    plata += '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;font-size:13px;color:#333;">' +
+      '<tr><td style="padding:2px 0;color:#777;">Beneficiar</td><td style="padding:2px 0;" align="right"><strong>' + eHtml_(CFG.BANK.TITULAR) + '</strong></td></tr>' +
+      '<tr><td style="padding:2px 0;color:#777;">IBAN</td><td style="padding:2px 0;" align="right"><strong style="color:' + C.magenta + ';">' + eHtml_(CFG.BANK.IBAN) + '</strong></td></tr>' +
+      '<tr><td style="padding:2px 0;color:#777;">Banca</td><td style="padding:2px 0;" align="right">' + eHtml_(CFG.BANK.BANCA) + '</td></tr>' +
+      '<tr><td style="padding:2px 0;color:#777;">CIF</td><td style="padding:2px 0;" align="right">' + eHtml_(CFG.BANK.CUI) + '</td></tr>' +
+      '</table>' +
+      '<div style="margin-top:10px;padding:10px 12px;background:#FFF6E6;border-radius:6px;font-size:13px;color:#7A4B00;">' +
+      'La <strong>detalii plată</strong> scrieți exact:<br><strong>' + eHtml_(refPlata) + '</strong></div>' +
+      (tarifText ? '' : '<div style="margin-top:8px;font-size:12px;color:#777;">Suma exactă vă este comunicată de antrenor.</div>');
+    h.push(eBox_(C.magenta, 'De achitat', plata));
+  } else {
+    h.push(eBox_('#0B6B2E', 'Abonament', '✅ <strong>Achitat</strong> pentru ' + eHtml_(monthText) +
+      (a.dataPlata ? ' <span style="color:#555;">(' + eHtml_(a.dataPlata) + ')</span>' : '')));
+  }
+
+  // situație
+  if (prez + abs + rec > 0) {
+    h.push(eBox_(C.orange, 'Situația din ' + eHtml_(monthText),
+      '<table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>' +
+      '<td align="center" style="padding:4px;"><div style="font-size:22px;font-weight:bold;color:#0B6B2E;">' + prez + '</div><div style="font-size:11px;color:#777;text-transform:uppercase;">Prezențe</div></td>' +
+      '<td align="center" style="padding:4px;"><div style="font-size:22px;font-weight:bold;color:#B3261E;">' + abs + '</div><div style="font-size:11px;color:#777;text-transform:uppercase;">Absențe</div></td>' +
+      '<td align="center" style="padding:4px;"><div style="font-size:22px;font-weight:bold;color:' + C.cyan + ';">' + rec + '</div><div style="font-size:11px;color:#777;text-transform:uppercase;">Recuperate</div></td>' +
+      '</tr></table>' +
+      (recDisp > 0 ? '<div style="margin-top:10px;padding:8px 12px;background:#FFF1E0;border-radius:6px;font-size:13px;color:#8A4B00;">🪃 Aveți <strong>' + recDisp + '</strong> ' + (recDisp === 1 ? 'ședință disponibilă' : 'ședințe disponibile') + ' pentru recuperare.</div>' : '')));
+  }
+
+  // nota antrenorului
+  if (String(a.infoInterne || '').trim()) {
+    h.push(eBox_(C.orange, 'Mesaj de la antrenor', '<em>„' + eHtml_(a.infoInterne) + '"</em>'));
+  }
+
+  // buton
+  h.push('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:22px 0 6px 0;"><tr><td align="center">' +
+    '<a href="' + eHtml_(portal) + '" style="display:inline-block;background:' + C.cyan + ';color:#FFFFFF;text-decoration:none;font-size:15px;font-weight:bold;padding:14px 32px;border-radius:10px;">Vezi portalul părinților</a>' +
+    '</td></tr></table>');
+  h.push('<p style="margin:0;text-align:center;font-size:12px;color:#888;">Prezențe la zi, recuperări și anunțarea absențelor.</p>');
+  h.push('</td></tr>');
+
+  // subsol
+  h.push('<tr><td bgcolor="#111111" style="background:#111111;padding:18px 28px;" align="center">' +
+    '<div style="color:#FFFFFF;font-size:13px;font-weight:bold;">' + eHtml_(CFG.CLUB) + '</div>' +
+    '<div style="color:#AAAAAA;font-size:12px;margin-top:5px;">' + eHtml_(CFG.PHONE) + ' · ' + eHtml_(CFG.EMAIL) + '</div>' +
+    '<div style="color:#666666;font-size:11px;margin-top:10px;">Primiți acest mesaj pentru că sunteți părintele unui sportiv înscris.<br>Pentru dezabonare, răspundeți la acest email.</div>' +
+    '</td></tr>');
+
+  h.push('</table></td></tr></table></body></html>');
+
+  /* ───────── Variantă text simplu ───────── */
+  var t = [];
+  t.push('Bună ziua!');
+  t.push('');
+  t.push(type === 'reminder'
+    ? 'Abonamentul lui ' + a.prenume + ' pentru luna ' + monthText + '.'
+    : 'O nouă lună de antrenamente începe pentru ' + a.prenume + '.');
+  t.push('');
+  t.push('SPORTIV: ' + a.numeComplet);
+  t.push('Grupa: ' + (g.cat || '—') + (a.coach ? '  ·  Antrenor: ' + a.coach : ''));
+  t.push('Program: ' + (program || '—'));
+  if (sedinteLuna) t.push('Ședințe programate în această lună: ' + sedinteLuna);
+  if (urm) t.push('Următorul antrenament: ' + urm.zi + ', ' + urm.data + (urm.ora ? ', ora ' + urm.ora : ''));
+  t.push('');
+  if (type === 'reminder' || !achitat) {
+    t.push('DE ACHITAT' + (tarifText ? ': ' + tarifText : ''));
+    t.push('Termen: ' + scadenta);
+    t.push('Beneficiar: ' + CFG.BANK.TITULAR);
+    t.push('IBAN: ' + CFG.BANK.IBAN + '  (' + CFG.BANK.BANCA + ')');
+    t.push('CIF: ' + CFG.BANK.CUI);
+    t.push('Detalii plată: ' + refPlata);
+  } else {
+    t.push('ABONAMENT: achitat pentru ' + monthText + (a.dataPlata ? ' (' + a.dataPlata + ')' : ''));
+  }
+  if (prez + abs + rec > 0) {
+    t.push('');
+    t.push('SITUAȚIA DIN ' + String(monthText).toUpperCase() + ': ' + prez + ' prezențe, ' + abs + ' absențe, ' + rec + ' recuperate.');
+    if (recDisp > 0) t.push('Aveți ' + recDisp + ' ședință/ședințe disponibile pentru recuperare.');
+  }
+  if (String(a.infoInterne || '').trim()) { t.push(''); t.push('MESAJ DE LA ANTRENOR: ' + a.infoInterne); }
+  t.push('');
+  t.push('Portalul părinților: ' + portal);
+  t.push('');
+  t.push(CFG.CLUB + ' · ' + CFG.PHONE + ' · ' + CFG.EMAIL);
+
+  return { subiect: subiect, html: h.join(''), text: t.join('\n') };
+}
+
+/** Previzualizează șablonul pe un sportiv real, fără a trimite nimic. */
+function emailPreviewSablon() {
+  var ui = SpreadsheetApp.getUi();
+  var snap = getSnapshot_(false);
+  if (!snap) { ui.alert('Nu am putut citi registrul brut.'); return; }
+  var luna = null;
+  snap.months.forEach(function (m) { if (m.name === snap.curSheet) luna = m; });
+  if (!luna || !luna.ath.length) { ui.alert('Luna curentă nu conține sportivi.'); return; }
+
+  var r = ui.alert('Ce șablon previzualizezi?\n\nDA = memento de plată\nNU = salut de lună nouă', ui.ButtonSet.YES_NO_CANCEL);
+  if (r === ui.Button.CANCEL) return;
+  var type = (r === ui.Button.YES) ? 'reminder' : 'monthly';
+
+  // preferăm un sportiv neachitat pentru memento, ca să apară toate secțiunile
+  var a = luna.ath[0];
+  if (type === 'reminder') {
+    for (var i = 0; i < luna.ath.length; i++) { if (luna.ath[i].plata !== 'Achitat') { a = luna.ath[i]; break; } }
+  }
+
+  var msg = emailCompune_(type, a, luna, monthLabel_(getWorkingMonth_()));
+  var out = HtmlService.createHtmlOutput(msg.html).setWidth(680).setHeight(640);
+  ui.showModalDialog(out, 'Previzualizare — ' + msg.subiect);
 }

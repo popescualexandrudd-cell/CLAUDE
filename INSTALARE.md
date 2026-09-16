@@ -165,6 +165,14 @@ Pentru trimitere reală, pune `CFG.EMAIL_ON = true`.
 Necesită coloana „Email" în formular. Folosește `MailApp` (gratuit, ~100
 destinatari/zi pe un cont Gmail obișnuit — suficient pentru 100 de familii).
 
+**Înainte de prima trimitere reală**, rulează
+`✉️ Verifică trimiterea de email`. Îți arată cota rămasă, contul care trimite,
+și îți trimite ție un email de test. Tot aici se declanșează dialogul de
+autorizare pentru `MailApp`, dacă nu a fost acordat încă.
+
+Dacă o trimitere eșuează, raportul îți arată adresa, sportivul și **motivul
+exact** al erorii.
+
 ---
 
 ## Ce NU este inclus

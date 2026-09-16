@@ -94,6 +94,7 @@ function onOpen() {
       .addSeparator()
       .addItem('✉️ EMAIL: memento plată', 'emailSendReminder')
       .addItem('✉️ EMAIL: salut lună nouă', 'emailSendMonthly')
+      .addItem('✉️ Verifică trimiterea de email', 'emailVerifica')
     ).addToUi();
 }
 
@@ -1495,7 +1496,7 @@ function processEmailNotifications(type) {
   snap.months.forEach(function (m) { if (m.name === snap.curSheet) curLuna = m; });
   if (!curLuna) { ui.alert('Luna curentă nu a fost găsită în registrul brut.'); return; }
 
-  var trimise = 0, faraEmail = 0, preview = [], lipsa = [];
+  var eligibili = 0, trimise = 0, faraEmail = 0, preview = [], lipsa = [], esecuri = [];
   curLuna.ath.forEach(function (a) {
     if (type === 'reminder' && a.plata === 'Achitat') return;
     // Se încearcă TOATE numerele din celula CONTACT, apoi numele sportivului.
@@ -1521,8 +1522,14 @@ function processEmailNotifications(type) {
              '\n\nNumai bine,\n' + CFG.CLUB + '\n' + CFG.PHONE;
     }
 
-    if (CFG.EMAIL_ON) { try { MailApp.sendEmail(email, subiect, corp); trimise++; } catch (err) {} }
-    else { trimise++; if (preview.length < 3) preview.push('Către: ' + email + '  (' + a.numeComplet + ')\n' + subiect); }
+    eligibili++;
+    if (CFG.EMAIL_ON) {
+      // Orice eșec este raportat, nu înghițit: altfel vezi „trimise: 0" fără niciun motiv.
+      try { MailApp.sendEmail(email, subiect, corp); trimise++; }
+      catch (err) { esecuri.push('• ' + email + '  (' + a.numeComplet + ')\n   ↳ ' + (err && err.message ? err.message : String(err))); }
+    } else {
+      if (preview.length < 3) preview.push('Către: ' + email + '  (' + a.numeComplet + ')\n' + subiect);
+    }
   });
 
   var detaliuLipsa = lipsa.length
@@ -1532,9 +1539,63 @@ function processEmailNotifications(type) {
       'din formular diferă de cel din registrul antrenorilor.'
     : '';
 
-  if (CFG.EMAIL_ON) ui.alert('✅ Emailuri trimise: ' + trimise + detaliuLipsa);
-  else ui.alert('PREVIZUALIZARE — ' + trimise + ' destinatari' + detaliuLipsa + '\n\n' +
-                (preview.join('\n\n---\n') || '(niciun destinatar eligibil)'));
+  if (!CFG.EMAIL_ON) {
+    ui.alert('PREVIZUALIZARE — ' + eligibili + ' destinatari' + detaliuLipsa + '\n\n' +
+             (preview.join('\n\n---\n') || '(niciun destinatar eligibil)'));
+    return;
+  }
+
+  var cap = (trimise === eligibili)
+    ? '✅ Emailuri trimise: ' + trimise
+    : '⚠️ Trimise ' + trimise + ' din ' + eligibili + ' destinatari eligibili';
+
+  var detaliuEsec = '';
+  if (esecuri.length) {
+    detaliuEsec = '\n\n── Eșuate (' + esecuri.length + ') ──\n' + esecuri.slice(0, 5).join('\n') +
+      '\n\nCauze frecvente:\n' +
+      '• autorizarea pentru trimiterea de emailuri nu a fost acordată\n' +
+      '  → rulează o dată „✉️ Verifică trimiterea de email" din meniu;\n' +
+      '• cota zilnică de emailuri a fost depășită (vezi aceeași verificare);\n' +
+      '• adresa din formular este greșită.';
+  }
+
+  ui.alert(cap + detaliuEsec + detaliuLipsa);
+}
+
+/**
+ * Verificare rapidă: cotă rămasă, autorizare și un email de test către proprietar.
+ * Prima rulare declanșează dialogul de autorizare pentru MailApp, dacă lipsește.
+ */
+function emailVerifica() {
+  var ui = SpreadsheetApp.getUi(), out = [];
+  var cota = -1;
+  try { cota = MailApp.getRemainingDailyQuota(); out.push('Cotă rămasă azi: ' + cota + ' emailuri'); }
+  catch (err) { out.push('Cotă: NU POATE FI CITITĂ — ' + (err && err.message ? err.message : err)); }
+
+  var adresa = '';
+  try { adresa = Session.getEffectiveUser().getEmail(); } catch (err) {}
+  out.push('Cont care trimite: ' + (adresa || '(necunoscut)'));
+  out.push('CFG.EMAIL_ON: ' + (CFG.EMAIL_ON ? 'true (trimitere reală)' : 'false (mod testare)'));
+
+  if (cota === 0) {
+    ui.alert('🩺 VERIFICARE EMAIL\n\n' + out.join('\n') +
+             '\n\n⚠️ Cota zilnică este epuizată. Se reface în 24 de ore.');
+    return;
+  }
+
+  if (!adresa) { ui.alert('🩺 VERIFICARE EMAIL\n\n' + out.join('\n')); return; }
+
+  var r = ui.alert('Trimit un email de test către ' + adresa + '?', ui.ButtonSet.YES_NO);
+  if (r !== ui.Button.YES) { ui.alert('🩺 VERIFICARE EMAIL\n\n' + out.join('\n')); return; }
+
+  try {
+    MailApp.sendEmail(adresa, 'Test — Portal Club Tenis Masters',
+      'Dacă citești acest mesaj, trimiterea de emailuri funcționează corect.\n\n' + CFG.CLUB);
+    out.push('\n✅ Email de test trimis cu succes.');
+  } catch (err) {
+    out.push('\n❌ Trimiterea a eșuat: ' + (err && err.message ? err.message : err));
+  }
+  ui.alert('🩺 VERIFICARE EMAIL\n\n' + out.join('\n'));
 }
 
 /* ─────────── 7.6 Mentenanță Faza 4 ─────────── */

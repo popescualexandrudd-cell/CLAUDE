@@ -16,6 +16,7 @@
     <link rel="icon" href="https://i.postimg.cc/2ythf64H/unnamed-removebg-preview-(1).png">
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800;900&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
 
     <style>
       body { font-family: 'Montserrat', sans-serif; background-color: #f4f7f9; margin: 0; padding: 0; display: flex; flex-direction: column; align-items: center; min-height: 100vh; overflow-x: hidden; color: #333; position: relative; -webkit-tap-highlight-color: transparent;}
@@ -285,8 +286,10 @@
       <div class="modal-box" id="gdpr-box">
         <div class="modal-title">⚠️ Acțiune Necesară</div>
         <div class="modal-text">Salut! Te rugăm să completezi Acordul GDPR și Media pentru anul în curs. Durează doar un minut și ne ajută să organizăm antrenamentele în cele mai bune condiții! 🎾</div>
-        <a href="https://docs.google.com/forms/d/e/1FAIpQLSc8W-bndjC6SX21BHz8IfUYrXDjhrKZoWsJutR87x2mOc0DtA/viewform?usp=dialog" target="_blank" class="btn-gdpr" onclick="closeModal(true)" style="text-align: center; font-size: 13px;">📝 AM COMPLETAT / MERGI LA FORMULAR</a>
-        <button class="btn-close-modal" onclick="closeModal(false)">Închide (Voi completa mai târziu)</button>
+        <a href="https://docs.google.com/forms/d/e/1FAIpQLSc8W-bndjC6SX21BHz8IfUYrXDjhrKZoWsJutR87x2mOc0DtA/viewform?usp=dialog" target="_blank" class="btn-gdpr" onclick="gdprAmDeschisFormularul()" style="text-align: center; font-size: 13px;">📝 COMPLETEAZĂ FORMULARUL</a>
+        <button class="btn-gdpr" onclick="gdprVerifica(this)" style="background: linear-gradient(135deg, #00AEEF, #C4D600);">✅ AM COMPLETAT — VERIFICĂ</button>
+        <p id="gdpr-mesaj" style="font-size:12px; font-weight:700; margin:12px 0 0 0; display:none;"></p>
+        <button id="gdpr-declar" class="btn-close-modal" onclick="gdprDeclar()" style="display:none;">Confirm pe propria răspundere că am completat</button>
       </div>
     </div>
 
@@ -711,25 +714,74 @@
       }
       function handleEnter(e) { if (e.keyCode === 13) login(); }
 
+      /* ── ACORDUL GDPR ESTE OBLIGATORIU ──
+         Fereastra nu se mai poate închide fără acord. Starea vine de la server,
+         iar „Am completat" reverifică imediat în foaia de răspunsuri. Dacă numele
+         din formular diferă de cel din registru, după două încercări apare
+         declarația pe proprie răspundere — altfel părintele ar rămâne blocat. */
+      var gdprIncercari = 0;
+
       function showGdprModal() {
-        if (!SESSION.token) return;          // se cere doar părinților autentificați
-        if (SESSION.gdprOk) return;          // starea vine de la SERVER, nu din browser
+        if (!SESSION.token) return;
+        if (SESSION.gdprOk) return;
         var pwa = document.getElementById('pwa-modal');
-        if (pwa && pwa.style.display === 'flex') { setTimeout(showGdprModal, 2500); return; }  // reîncearcă, nu renunță
+        if (pwa && pwa.style.display === 'flex') { setTimeout(showGdprModal, 2500); return; }
         var modal = document.getElementById('gdpr-modal'), box = document.getElementById('gdpr-box');
         modal.style.display = 'flex';
         setTimeout(function(){ modal.style.opacity = '1'; box.style.transform = 'scale(1)'; }, 100);
       }
-      function closeModal(markCompleted) {
+
+      function gdprMesaj(txt, culoare) {
+        var el = document.getElementById('gdpr-mesaj');
+        if (!el) return;
+        el.innerText = txt; el.style.color = culoare; el.style.display = txt ? 'block' : 'none';
+      }
+
+      function gdprAmDeschisFormularul() {
+        gdprMesaj('După ce trimiți formularul, revino aici și apasă „Am completat — verifică".', '#00AEEF');
+      }
+
+      function gdprVerifica(btn) {
+        if (!SESSION.token) return;
+        var textInitial = btn.innerText;
+        btn.innerText = 'Se verifică…'; btn.disabled = true;
+        gdprMesaj('', '');
+
+        google.script.run.withSuccessHandler(function (r) {
+          btn.innerText = textInitial; btn.disabled = false;
+          if (r && r.gdprOk) { SESSION.gdprOk = true; gdprInchide(); return; }
+          gdprIncercari++;
+          gdprMesaj(gdprIncercari < 2
+            ? 'Încă nu găsim răspunsul tău. Dacă tocmai l-ai trimis, mai încearcă o dată în câteva secunde.'
+            : 'Tot nu îl găsim. Probabil numele sportivului din formular diferă de cel din evidența clubului.',
+            '#d32f2f');
+          if (gdprIncercari >= 2) document.getElementById('gdpr-declar').style.display = 'block';
+        }).withFailureHandler(function () {
+          btn.innerText = textInitial; btn.disabled = false;
+          gdprMesaj('Eroare de conexiune. Încearcă din nou.', '#d32f2f');
+        }).portalGdprVerifica(SESSION.token);
+      }
+
+      function gdprDeclar() {
+        if (!SESSION.token) return;
+        if (!confirm('Confirmi că ai completat Acordul GDPR și Media?\n\nDeclarația se înregistrează pe numele tău și este verificată ulterior de club.')) return;
+        SESSION.gdprOk = true;
+        try { google.script.run.portalAcceptGdpr(SESSION.token); } catch (e) {}
+        gdprInchide();
+      }
+
+      function gdprInchide() {
         var modal = document.getElementById('gdpr-modal'), box = document.getElementById('gdpr-box');
-        if (markCompleted) {
-          SESSION.gdprOk = true;
-          // Acordul se înregistrează pe server (versiune + dată) => dovadă verificabilă,
-          // și nu se mai pierde niciodată odată cu memoria browserului.
-          if (SESSION.token) { try { google.script.run.portalAcceptGdpr(SESSION.token); } catch (e) {} }
-        }
         modal.style.opacity = '0'; box.style.transform = 'scale(0.8)';
         setTimeout(function(){ modal.style.display = 'none'; }, 400);
+      }
+
+      /* Păstrată pentru compatibilitate: orice apel vechi de închidere a ferestrei
+         nu mai poate ocoli acordul obligatoriu. */
+      function closeModal(markCompleted) {
+        if (markCompleted) { gdprDeclar(); return; }
+        if (!SESSION.gdprOk) { gdprMesaj('Acordul este obligatoriu pentru a folosi portalul.', '#d32f2f'); return; }
+        gdprInchide();
       }
       
       function showOffers() { var modal = document.getElementById('offers-modal'), box = document.getElementById('offers-box'); modal.style.display = 'flex'; setTimeout(function(){ modal.style.opacity = '1'; box.style.transform = 'scale(1)'; }, 100); }
@@ -756,6 +808,80 @@
           var d = new Date(), yyyy = d.getFullYear(), mm = (d.getMonth() + 1 < 10 ? '0' : '') + (d.getMonth() + 1), dd = (d.getDate() < 10 ? '0' : '') + d.getDate();
           var dateStr = yyyy + mm + dd, title = encodeURIComponent("🎾 Tenis - " + nume), details = encodeURIComponent("Antrenament de tenis la Club Masters."), loc = encodeURIComponent("Club Tenis Masters, Strada Gheorghe Petrașcu 43-45, 031592 București, România"), dates = dateStr + "T" + startHour + "/" + dateStr + "T" + endHour, rrule = "RRULE:FREQ=WEEKLY;BYDAY=" + days.join(',');
           return "https://calendar.google.com/calendar/render?action=TEMPLATE&text=" + title + "&dates=" + dates + "&recur=" + rrule + "&details=" + details + "&location=" + loc;
+      }
+
+      /* ───────────────────────────────────────────────────────────────────────
+         PLATĂ RAPIDĂ
+         Nu există un standard prin care o pagină web să deschidă aplicația
+         bancară de pe telefon cu transferul deja completat — ar fi nevoie de un
+         furnizor de inițiere de plăți (PSD2), cu contract și costuri.
+         Ce se poate face fără nimic în plus:
+           • cod QR în format EPC/SEPA, scanabil din majoritatea aplicațiilor
+             bancare („Plată prin QR"), care completează singur beneficiarul,
+             IBAN-ul, suma și detaliile;
+           • copierea IBAN-ului și a referinței cu o apăsare.
+         Codul QR se generează LOCAL, în telefon — datele nu pleacă nicăieri.
+         ─────────────────────────────────────────────────────────────────────── */
+
+      function sumaDinTarif(t) {
+        var m = String(t == null ? '' : t).replace(',', '.').match(/(\d+(?:\.\d{1,2})?)/);
+        return m ? m[1] : '';
+      }
+
+      /* Structura EPC069-12, acceptată de scanerele de plăți din aplicațiile bancare. */
+      function epcPayload(nume, iban, suma, referinta) {
+        return ['BCD', '002', '1', 'SCT', '',
+                String(nume).substring(0, 70),
+                String(iban).replace(/\s+/g, ''),
+                suma ? ('RON' + suma) : '',
+                '', '',
+                String(referinta).substring(0, 140)].join('\n');
+      }
+
+      function copiaza(text, btn) {
+        var reusit = false;
+        try {
+          var ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed'; ta.style.opacity = '0';
+          document.body.appendChild(ta); ta.focus(); ta.select();
+          reusit = document.execCommand('copy');
+          document.body.removeChild(ta);
+        } catch (e) { reusit = false; }
+
+        if (!reusit && navigator.clipboard) {
+          navigator.clipboard.writeText(text).then(function () { copiatFeedback(btn); }, function () {});
+          return;
+        }
+        if (reusit) copiatFeedback(btn);
+        else prompt('Copiază manual:', text);
+      }
+
+      function copiatFeedback(btn) {
+        if (!btn) return;
+        var t = btn.innerText;
+        btn.innerText = '✅ Copiat!';
+        setTimeout(function () { btn.innerText = t; }, 1600);
+      }
+
+      /* Desenează codul QR după randare. Fără biblioteca QR, secțiunea rămâne
+         funcțională — doar fără imagine. */
+      function deseneazaQR() {
+        if (typeof QRCode === 'undefined') {
+          var lipsa = document.querySelectorAll('.qr-box');
+          for (var k = 0; k < lipsa.length; k++) lipsa[k].style.display = 'none';
+          return;
+        }
+        var noduri = document.querySelectorAll('.qr-target');
+        for (var i = 0; i < noduri.length; i++) {
+          var n = noduri[i];
+          if (n.getAttribute('data-gata') === '1') continue;
+          try {
+            new QRCode(n, { text: n.getAttribute('data-payload'), width: 150, height: 150,
+                            colorDark: '#111111', colorLight: '#ffffff' });
+            n.setAttribute('data-gata', '1');
+          } catch (e) { n.parentNode.style.display = 'none'; }
+        }
       }
 
       function togglePayment(btn) { var details = btn.nextElementSibling; if (details.style.display === "none") { details.style.display = "block"; btn.innerText = "ASCUNDE DETALII"; } else { details.style.display = "none"; btn.innerText = "💳 VEZI DETALII PLATĂ"; } }
@@ -1031,15 +1157,31 @@
               if (ath.plata === 'Achitat') {
                   html += '<div style="margin-top:15px; font-size:12px; font-weight:900; padding: 14px; border-radius:10px; text-align:center; background:#e8f5e9; border: 1px solid #c8e6c9; color:#2e7d32; text-transform:uppercase; letter-spacing:1px;">✅ Abonament Achitat (' + esc(ath.luna) + ')</div>';
               } else {
+                  var refPlata = ath.nume + ' – luna ' + String(ath.luna).toLowerCase();
+                  var sumaPlata = sumaDinTarif(ath.tarif);
+                  var payloadQR = epcPayload(SETARI.TITULAR, SETARI.IBAN, sumaPlata, refPlata);
+
                   html += '<div class="pay-zone">';
                   html += '⚠️ ABONAMENT NEACHITAT';
+                  if (sumaPlata) html += '<div style="font-size:26px; font-weight:900; margin:6px 0 2px 0;">' + esc(sumaPlata) + ' lei</div>';
                   html += '<button class="btn-pay" onclick="togglePayment(this)">💳 Vezi detalii plată</button>';
                   html += '<div class="payment-details" style="display:none;">';
                   html += '<b style="color:#111; font-size: 13px;">Transfer bancar (ordin de plată) către:</b><br><br>';
                   html += 'Beneficiar: <b style="color:#111;">' + SETARI.TITULAR + '</b><br>CIF: <b style="color:#111;">' + SETARI.CUI + '</b><br>Banca: <b style="color:#111;">' + SETARI.BANCA + '</b><br>IBAN: <b style="color:#c62828;">' + SETARI.IBAN + '</b><br><br>';
                   html += '<div style="background:#fff3e0; padding:10px; border-radius:8px; margin-bottom:10px; border: 1px solid #ffe0b2;">';
                   html += '<span style="color:#F7941E; font-weight:800;">DETALII PLATĂ:</span><br>Vă rugăm să specificați exact textul de mai jos:<br>';
-                  html += '<b style="color:#111;">' + esc(ath.nume) + ' – luna ' + esc(ath.luna).toLowerCase() + '</b></div>';
+                  html += '<b style="color:#111;">' + esc(refPlata) + '</b></div>';
+
+                  // Plată rapidă: QR scanabil din aplicația bancară + copiere cu o apăsare.
+                  html += '<div class="qr-box" style="background:#fff; border:1px solid #e0e5eb; border-radius:10px; padding:14px; margin-bottom:10px; text-align:center;">';
+                  html += '<div style="font-size:10px; font-weight:900; color:#00AEEF; text-transform:uppercase; letter-spacing:1px; margin-bottom:10px;">📱 Plată prin scanare</div>';
+                  html += '<div class="qr-target" data-payload="' + esc(payloadQR) + '" style="display:inline-block;"></div>';
+                  html += '<div style="font-size:10px; color:#888; margin-top:10px; line-height:1.5;">Deschide aplicația băncii → <b>Plăți</b> → <b>Scanează cod QR</b>.<br>Transferul se completează singur.</div>';
+                  html += '</div>';
+
+                  html += '<button class="btn-pay" onclick="copiaza(' + attr(SETARI.IBAN) + ', this)" style="margin-bottom:8px;">📋 Copiază IBAN-ul</button>';
+                  html += '<button class="btn-pay" onclick="copiaza(' + attr(refPlata) + ', this)" style="margin-bottom:10px;">📋 Copiază detaliile plății</button>';
+
                   html += '<i style="color:#666;">*După efectuarea plății, vă rugăm să trimiteți dovada antrenorului responsabil.</i>';
                   html += '</div></div>';
               }
@@ -1053,6 +1195,7 @@
         
         document.getElementById('athletes-container').innerHTML = html;
         document.getElementById('dashboard-view').style.display = 'block';
+        try { deseneazaQR(); } catch (e) {}
         
         if (!isCached && hasChampion && typeof confetti === 'function') { confetti({ particleCount: 200, spread: 100, origin: { y: 0.6 }, colors: ['#00AEEF', '#EC008C', '#F7941E', '#C4D600'], disableForReducedMotion: true }); }
         setTimeout(function(){ var bars = document.querySelectorAll('.progress-bar'); bars.forEach(function(bar){ var w = bar.style.width; bar.style.width = '0%'; setTimeout(function(){ bar.style.width = w; }, 100); }); }, 100);

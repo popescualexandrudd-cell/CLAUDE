@@ -83,6 +83,8 @@ function run(file) {
     ScriptApp: { getService: ()=> ({getUrl: ()=> ''}), getProjectTriggers: ()=> [] },
     DriveApp: { getFileById: ()=> ({ getLastUpdated: ()=> new Date(0), getName: ()=> 'X' }) },
     LockService: { getScriptLock: ()=> ({ tryLock: ()=> true, waitLock: ()=> true, releaseLock: ()=> {} }) },
+    __ADMIN: 'owner@club.ro',
+    Session: { getActiveUser: ()=>({getEmail:()=>'owner@club.ro'}), getEffectiveUser: ()=>({getEmail:()=>'owner@club.ro'}) },
     UrlFetchApp:{}, HtmlService:{}, MailApp:{} });
   vm.runInContext(fs.readFileSync(file,'utf8'), ctx, { filename: file });
   vm.runInContext('importDataCore(SpreadsheetApp.getActiveSpreadsheet(), false);', ctx);

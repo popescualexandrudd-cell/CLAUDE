@@ -7,5 +7,6 @@ node teste/02-sincronizare.js            teste
 node teste/03-doget.js                   teste
 node teste/05-faza4.js               teste
 node teste/06-email.js                teste
+node teste/07-plata-gdpr.js            teste
 node teste/04-performanta.js             teste
 echo "════ TOATE TESTELE AU TRECUT ════"

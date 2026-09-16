@@ -203,6 +203,66 @@ Textele se modifică în `emailCompune_`.
 
 ---
 
+# Securitate
+
+O aplicație web Apps Script publicată „Execute as: me / Access: anyone" expune
+**toate funcțiile globale** prin `google.script.run`. Orice părinte cu linkul
+portalului putea rula, din consola browserului, `buildAll()` — reconstrucția
+foilor, cu pierderea prezențelor — sau sincronizarea.
+
+Acum fiecare acțiune de administrare începe cu `cerAdmin_()`, care compară
+utilizatorul activ cu proprietarul. Din meniu sunt identici; pentru un vizitator
+anonim al aplicației web, `getActiveUser()` întoarce șir gol, iar apelul este
+respins. Punctele publice ale portalului (`portalLogin`, `portalRefresh`,
+`portalCerere`, `doGet` …) rămân neatinse.
+
+`getAthleteData` a devenit **privată** (`getAthleteData_`). Era apelabilă direct
+cu un număr de telefon, ocolind complet al doilea factor (prenumele sportivului).
+
+---
+
+# Acordul GDPR este obligatoriu
+
+Fereastra de acord **nu se mai poate închide**. Butonul „Voi completa mai
+târziu" a dispărut.
+
+1. `📝 COMPLETEAZĂ FORMULARUL` deschide Google Form.
+2. `✅ AM COMPLETAT — VERIFICĂ` reverifică pe loc în foaia de răspunsuri
+   (golește memoria cache, deci răspunde imediat, nu după 10 minute).
+3. După **două** verificări eșuate apare `Confirm pe propria răspundere`.
+
+Pasul 3 există pentru că potrivirea se face după numele sportivului: dacă
+părintele scrie în formular o poreclă sau altă grafie, ar rămâne blocat
+definitiv în afara aplicației. Declarația se înregistrează în `_SESIUNI` ca
+`2026.1 (declarat în portal)`, distinct de acordul dovedit prin formular — poți
+filtra oricând coloana ca să vezi cine trebuie verificat manual.
+
+---
+
+# Plată rapidă
+
+**Nu există un standard prin care o pagină web să deschidă aplicația bancară de
+pe telefon cu transferul deja completat.** Ar fi nevoie de un furnizor de
+inițiere de plăți (PSD2), cu contract și costuri per tranzacție. Ce se poate
+face fără nimic în plus, în zona de plată din portal:
+
+- **Cod QR în format EPC/SEPA** — se scanează din aplicația băncii
+  (*Plăți → Scanează cod QR*) și completează singur beneficiarul, IBAN-ul, suma
+  și detaliile plății. Se generează **local, în telefon** — datele nu pleacă
+  nicăieri.
+- **📋 Copiază IBAN-ul** și **📋 Copiază detaliile plății** — o apăsare, fără
+  tastat 24 de caractere pe telefon.
+
+Emailul de memento trimite către această secțiune.
+
+> Limitări de care să ții cont: standardul EPC este definit pentru EUR, iar noi
+> punem `RON`. Majoritatea aplicațiilor bancare din România îl acceptă, dar
+> câteva pot cere introducerea manuală a sumei. Dacă biblioteca de generare a
+> codului QR nu se încarcă, secțiunea QR se ascunde singură și rămân butoanele
+> de copiere.
+
+---
+
 # Meniul 🎾 MASTERS
 
 Sus stau doar acțiunile de zi cu zi; configurarea, întreținerea și diagnosticul

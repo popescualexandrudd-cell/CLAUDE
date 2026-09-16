@@ -65,7 +65,7 @@ function memSheet(name) {
 function makeSandbox(sheets) {
   const cache = {}, dp = {}, container = {};
   const bag = { getProperty: k => (k in dp ? dp[k] : null), setProperty: (k,v) => { dp[k] = String(v); } };
-  return { console,
+  const sb = { console,
     SpreadsheetApp: {
       openById: () => ({ getSheets: () => sheets, getSheetByName: () => null }),
       getActiveSpreadsheet: () => ({
@@ -94,7 +94,11 @@ function makeSandbox(sheets) {
     ScriptApp: { getService: () => ({ getUrl: () => 'https://script.google.com/macros/s/TEST/exec' }), getProjectTriggers: () => [] },
     DriveApp: { getFileById: () => ({ getLastUpdated: () => new Date(0), getName: () => 'PREZENTA CURSURI' }) },
     LockService: { getScriptLock: () => ({ tryLock: () => true, waitLock: () => true, releaseLock: () => {} }) },
+    __ADMIN: 'owner@club.ro',
+    Session: { getActiveUser: function(){ return { getEmail: function(){ return sb.__ADMIN; } }; },
+               getEffectiveUser: function(){ return { getEmail: function(){ return 'owner@club.ro'; } }; } },
     UrlFetchApp: {}, HtmlService: {}, MailApp: {} };
+  return sb;
 }
 
 const T = new Date(2026, 8, 3, 12, 0, 0).getTime();
@@ -154,6 +158,11 @@ module.exports.load = function(file, containerSeed){
   vm.runInContext(fs.readFileSync(file,'utf8'),ctx,{filename:file});
   const T = new Date(2026, 8, 3, 12, 0, 0).getTime();
   vm.runInContext(`Date = (function(R,T){ function D(...a){ return a.length ? new R(...a) : new R(T); } D.prototype=R.prototype; D.now=()=>T; return D; })(Date, ${T});`, ctx);
+
+  // getAthleteData a devenit privată (getAthleteData_), ca să nu mai fie expusă
+  // prin google.script.run. În teste îi punem un alias, ca vechile verificări să
+  // continue să compare aceeași logică între versiuni.
+  try { vm.runInContext('if (typeof getAthleteData === "undefined" && typeof getAthleteData_ === "function") { function getAthleteData(p){ return getAthleteData_(p); } }', ctx); } catch (e) {}
   vm.runInContext('function lastTemplate(x){ return __LAST__; }',ctx);
   return ctx;
 };

@@ -28,7 +28,7 @@ function ctxFor(file, counter){
   const sheets = LUNI.slice(0,N_MONTHS).map(m=> srcSheet(m+' 2026_PREZENTA', counter));
   const dp={}, cache={};
   const bag={getProperty:k=>(k in dp?dp[k]:null), setProperty:(k,v)=>{dp[k]=String(v);}};
-  const ctx=vm.createContext({ console,
+  const sb = { console,
     SpreadsheetApp:{ openById:()=>({getSheets:()=>sheets,getSheetByName:()=>null}), getActiveSpreadsheet:()=>null },
     PropertiesService:{getDocumentProperties:()=>bag,getScriptProperties:()=>bag},
     CacheService:{getScriptCache:()=>({get:k=>(k in cache?cache[k]:null),put:(k,v)=>{cache[k]=String(v);},putAll:m=>Object.keys(m).forEach(k=>cache[k]=String(m[k])),getAll:ks=>{const o={};ks.forEach(k=>{if(k in cache)o[k]=cache[k];});return o;},remove:k=>{delete cache[k];},removeAll:ks=>ks.forEach(k=>delete cache[k])})},
@@ -40,8 +40,17 @@ function ctxFor(file, counter){
     ScriptApp:{getService:()=>({getUrl:()=>''}),getProjectTriggers:()=>[]},
     DriveApp:{getFileById:()=>({getLastUpdated:()=>new Date(0),getName:()=>'X'})},
     LockService:{getScriptLock:()=>({tryLock:()=>true,waitLock:()=>true,releaseLock:()=>{}})},
-    UrlFetchApp:{},HtmlService:{},MailApp:{} });
+    __ADMIN: 'owner@club.ro',
+    Session: { getActiveUser: function(){ return { getEmail: function(){ return sb.__ADMIN; } }; },
+               getEffectiveUser: function(){ return { getEmail: function(){ return 'owner@club.ro'; } }; } },
+    UrlFetchApp:{},HtmlService:{},MailApp:{} };
+  const ctx=vm.createContext(sb);
   vm.runInContext(fs.readFileSync(file,'utf8'),ctx,{filename:file});
+  // getAthleteData a devenit privată (getAthleteData_), ca să nu mai fie expusă
+  // prin google.script.run. În teste îi punem un alias, ca vechile verificări să
+  // continue să compare aceeași logică între versiuni.
+  try { vm.runInContext('if (typeof getAthleteData === "undefined" && typeof getAthleteData_ === "function") { function getAthleteData(p){ return getAthleteData_(p); } }', ctx); } catch (e) {}
+
   vm.runInContext("CFG.SOURCE_SHEET='SEPTEMBRIE 2026_PREZENTA';",ctx);
   return ctx;
 }

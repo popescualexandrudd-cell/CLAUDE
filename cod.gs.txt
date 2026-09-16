@@ -33,7 +33,6 @@ var CFG = {
 
   /* ── Date pentru emailurile către părinți ── */
   ZI_SCADENTA: 10,               // ziua din lună până la care se achită abonamentul
-  EMAIL_AUTO: false,             // true = declanșatorul zilnic chiar trimite
   EMAIL_ZILE_INAINTE: 2,         // cu câte zile înainte de primul antrenament pleacă salutul
   BANK: {
     TITULAR: 'Asociația Clubul Sportiv Tenis Masters',
@@ -71,6 +70,26 @@ var COLS = ['Nr.', 'Antrenor', 'Inițială Nume', 'Prenume', 'Abonament'];
 var STAT = ['Zile\nFixe', 'Prezențe', 'Absențe', 'Recuperări', 'Vacanță', '% participare', 'Evoluție', 'Observații sportive'];
 
 /* ═══════════════════════════ 1. MENIU & SINCRONIZARE ═══════════════════════════ */
+/* ═══ SECURITATE ═══
+ * O aplicație web Apps Script publicată „Execute as: me / Access: anyone" expune
+ * TOATE funcțiile globale prin google.script.run. Fără gardă, orice vizitator al
+ * portalului poate rula reconstrucția foilor sau sincronizarea din consola
+ * browserului. Din meniu, utilizatorul activ este chiar proprietarul; pentru un
+ * vizitator anonim al aplicației web, getActiveUser() întoarce șir gol.
+ */
+function esteAdmin_() {
+  try {
+    var activ = Session.getActiveUser().getEmail();
+    var efectiv = Session.getEffectiveUser().getEmail();
+    return !!activ && activ === efectiv;
+  } catch (err) { return false; }
+}
+
+function cerAdmin_() {
+  if (esteAdmin_()) return true;
+  throw new Error('Această acțiune este permisă doar administratorului.');
+}
+
 function onOpen() {
   // Memorăm o dată ID-ul registrului: portalul (rulat ca aplicație web) are astfel
   // întotdeauna acces la foaia de sesiuni, chiar dacă sincronizarea nu a fost activată.
@@ -106,7 +125,7 @@ function onOpen() {
       .addSeparator()
       .addSubMenu(ui.createMenu('🔄 Sincronizare automată')
         .addItem('⚡ ACTIVEAZĂ Sync LIVE (la editare)', 'installLiveSync')
-        .addItem('⏱️ ACTIVEAZĂ Sync la 5 minute', 'installTimeSync')
+        .addItem('⏱️ ACTIVEAZĂ Sync la 15 minute', 'installTimeSync')
         .addItem('❌ DEZACTIVEAZĂ orice sincronizare', 'removeSyncs')
       )
       .addItem('📐 Recalculează zilele din calendar', 'refreshCalendar')
@@ -121,10 +140,14 @@ function onOpen() {
     ).addToUi();
 }
 
-function installLiveSync() { removeSyncs(true); PropertiesService.getDocumentProperties().setProperty('TARGET_ID', SpreadsheetApp.getActiveSpreadsheet().getId()); ScriptApp.newTrigger('liveSyncWorker').forSpreadsheet(CFG.SOURCE_ID).onEdit().create(); SpreadsheetApp.getUi().alert('✅ Sincronizare LIVE Activată!'); }
-function installTimeSync() { removeSyncs(true); PropertiesService.getDocumentProperties().setProperty('TARGET_ID', SpreadsheetApp.getActiveSpreadsheet().getId()); ScriptApp.newTrigger('liveSyncWorker').timeBased().everyMinutes(5).create(); SpreadsheetApp.getUi().alert('✅ Sincronizare la 5 MINUTE Activată!'); }
-function removeSyncs(silent) { var triggers = ScriptApp.getProjectTriggers(); for (var i = 0; i < triggers.length; i++) { if (triggers[i].getHandlerFunction() === 'liveSyncWorker') { ScriptApp.deleteTrigger(triggers[i]); } } if (silent !== true) SpreadsheetApp.getUi().alert('❌ Toate sincronizările automate au fost oprite.'); }
+function installLiveSync() {
+  cerAdmin_(); removeSyncs(true); PropertiesService.getDocumentProperties().setProperty('TARGET_ID', SpreadsheetApp.getActiveSpreadsheet().getId()); ScriptApp.newTrigger('liveSyncWorker').forSpreadsheet(CFG.SOURCE_ID).onEdit().create(); SpreadsheetApp.getUi().alert('✅ Sincronizare LIVE Activată!'); }
+function installTimeSync() {
+  cerAdmin_(); removeSyncs(true); PropertiesService.getDocumentProperties().setProperty('TARGET_ID', SpreadsheetApp.getActiveSpreadsheet().getId()); ScriptApp.newTrigger('liveSyncWorker').timeBased().everyMinutes(15).create(); SpreadsheetApp.getUi().alert('✅ Sincronizare la 15 MINUTE activată!\n\nImportul se sare automat dacă registrul brut nu s-a modificat.'); }
+function removeSyncs(silent) {
+  cerAdmin_(); var triggers = ScriptApp.getProjectTriggers(); for (var i = 0; i < triggers.length; i++) { if (triggers[i].getHandlerFunction() === 'liveSyncWorker') { ScriptApp.deleteTrigger(triggers[i]); } } if (silent !== true) SpreadsheetApp.getUi().alert('❌ Toate sincronizările automate au fost oprite.'); }
 function liveSyncWorker(e) {
+  if (!e) cerAdmin_();          // apelat direct din client, nu de un declanșator
   try {
     var targetId = PropertiesService.getDocumentProperties().getProperty('TARGET_ID');
     if (!targetId) return;
@@ -148,9 +171,11 @@ function sourceChanged_() {
 function markSourceSynced_() {
   try { props_().setProperty('SRC_MTIME', String(DriveApp.getFileById(CFG.SOURCE_ID).getLastUpdated().getTime())); } catch (err) {}
 }
-function triggerManualSync() { importDataCore(SpreadsheetApp.getActiveSpreadsheet(), false); }
+function triggerManualSync() {
+  cerAdmin_(); importDataCore(SpreadsheetApp.getActiveSpreadsheet(), false); }
 
 function importDataCore(ss, isAuto) {
+  if (isAuto !== true) cerAdmin_();
   // PROTECȚIE: fără lock, două sincronizări simultane pot lăsa grilele goale
   // exact în momentul în care un părinte deschide portalul.
   var lock = LockService.getScriptLock();
@@ -368,6 +393,7 @@ function sheetName_(g) { return g.cat.substring(0, 10) + ' • ' + g.time.replac
 
 /* ═══════════════════════════ 3. CONSTRUIRE HUB ADMIN ═══════════════════════════ */
 function buildAll() {
+  cerAdmin_();
   // Reconstruirea șterge grilele de prezențe (numele sportivilor se păstrează).
   // Acum e îngropată în „Avansat", deci confirmăm explicit înainte.
   try {
@@ -388,7 +414,7 @@ function buildLegend_(ss) { var sh = ss.getSheetByName('LEGENDĂ') || ss.insertS
 function buildGroupSheet_(ss, g, m) { 
   var name = sheetName_(g), sh = ss.getSheetByName(name) || ss.insertSheet(name); var keep = harvestAthletes_(sh); sh.clear(); sh.clearConditionalFormatRules(); sh.setHiddenGridlines(true); 
   var dates = monthGridDays_(m, g.days), nDays = dates.length; var firstDayCol = LAY.fixedCols + 1, statCol = firstDayCol + nDays, lastCol = statCol + STAT.length - 1, lastRow = LAY.firstData + CFG.ROWS_PER_GROUP - 1; 
-  paintDiagonalBands_(sh, 1, LAY.headerRows, 1, lastCol); bevelBlock_(sh, rng_(2, 2, LAY.headerRows - 1, 2), CFG.CLUB + '\n' + CFG.SUB, C.ink, C.white, 13); bevelBlock_(sh, rng_(2, 4, LAY.headerRows - 1, 2), CFG.PHONE + '\n' + CFG.EMAIL, C.white, C.ink, 10); bevelBlock_(sh, rng_(LAY.titleRow, 1, 1, LAY.fixedCols), g.cat + ' | L-V | ' + g.time, g.accent, g.accent === C.lime || g.accent === '#FFC107' ? C.ink : C.white, 12); sh.getRange(LAY.titleRow, LAY.fixedCols + 1, 1, Math.max(lastCol - LAY.fixedCols, 1)).merge().setValue(monthLabel_(m).toUpperCase() + '   •   ' + numarSaptamani_(m) + ' SĂPTĂMÂNI   •   ' + nDays + ' ZILE DE ANTRENAMENT').setBackground(C.ink).setFontColor(C.white).setFontWeight('bold').setHorizontalAlignment('center').setVerticalAlignment('middle'); sh.setRowHeight(LAY.titleRow, 34); sh.getRange(LAY.hdrRow, 1, 3, LAY.fixedCols).setBackground(C.ink2); COLS.forEach(function (t, i) { sh.getRange(LAY.hdrRow, i + 1, 3, 1).merge().setValue(t).setFontColor(C.white).setFontWeight('bold').setFontSize(10).setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true); }); sh.getRange(LAY.hdrRow, firstDayCol, 1, nDays).merge().setValue('PREZENȚE').setBackground(C.ink).setFontColor(C.white).setFontWeight('bold').setHorizontalAlignment('center'); 
+  paintDiagonalBands_(sh, 1, LAY.headerRows, 1, lastCol); bevelBlock_(sh, rng_(2, 2, LAY.headerRows - 1, 2), CFG.CLUB + '\n' + CFG.SUB, C.ink, C.white, 13); bevelBlock_(sh, rng_(2, 4, LAY.headerRows - 1, 2), CFG.PHONE + '\n' + CFG.EMAIL, C.white, C.ink, 10); bevelBlock_(sh, rng_(LAY.titleRow, 1, 1, LAY.fixedCols), g.cat + ' | L-V | ' + g.time, g.accent, g.accent === C.lime || g.accent === '#FFC107' ? C.ink : C.white, 12); sh.getRange(LAY.titleRow, LAY.fixedCols + 1, 1, Math.max(lastCol - LAY.fixedCols, 1)).merge().setValue(monthLabel_(m).toUpperCase() + '   •   ' + numarSaptamani_(m, g.days) + ' SĂPTĂMÂNI   •   ' + nDays + ' ZILE DE ANTRENAMENT').setBackground(C.ink).setFontColor(C.white).setFontWeight('bold').setHorizontalAlignment('center').setVerticalAlignment('middle'); sh.setRowHeight(LAY.titleRow, 34); sh.getRange(LAY.hdrRow, 1, 3, LAY.fixedCols).setBackground(C.ink2); COLS.forEach(function (t, i) { sh.getRange(LAY.hdrRow, i + 1, 3, 1).merge().setValue(t).setFontColor(C.white).setFontWeight('bold').setFontSize(10).setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true); }); sh.getRange(LAY.hdrRow, firstDayCol, 1, nDays).merge().setValue('PREZENȚE').setBackground(C.ink).setFontColor(C.white).setFontWeight('bold').setHorizontalAlignment('center'); 
   var wd = [], dd = [], bg = [], bgDate = [], fgDate = [];
   dates.forEach(function (d) {
     wd.push(['','L','Ma','Mi','J','V','S','D'][d.getDay() === 0 ? 7 : d.getDay()]);
@@ -412,6 +438,7 @@ function applyConditionalFormats_(sh, firstDayCol, nDays, lastRow) { var grid = 
 function waSendMonthly() { processWhatsAppNotifications('monthly'); }
 function waSendReminder() { processWhatsAppNotifications('reminder'); }
 function processWhatsAppNotifications(type) {
+  cerAdmin_();
   var ui = SpreadsheetApp.getUi(), monthText = monthLabel_(getWorkingMonth_());
   if (!CFG.WHATSAPP_ON) { ui.alert('🛠️ MOD TESTARE ACTIV 🛠️\n\nMesajele NU vor pleca real.\n\nSistemul va genera un raport pe ecran.'); }
   var logMessages = [], sentCount = 0;
@@ -450,12 +477,13 @@ function monthDays_(monthStart, weekdays) {
 
 function paintDiagonalBands_(sh, r1, nRows, c1, nCols) { var order = [C.cyan, C.magenta, C.orange, C.lime], bgs = []; for (var r = 0; r < nRows; r++) { var row = []; for (var c = 0; c < nCols; c++) { var band = Math.floor((((c + r * 0.55) % 24) + 24) % 24 / 6); row.push(order[band]); } bgs.push(row); } sh.getRange(r1, c1, nRows, nCols).setBackgrounds(bgs); }
 function bevelBlock_(sh, a1, text, bg, fg, size) { var rg = sh.getRange(a1); rg.merge().setValue(text).setBackground(bg).setFontColor(fg).setFontSize(size || 12).setFontWeight('bold').setFontFamily('Montserrat').setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true); rg.setBorder(true, true, null, null, null, null, '#FFFFFF', SpreadsheetApp.BorderStyle.SOLID_THICK); rg.setBorder(null, null, true, true, null, null, '#00000055', SpreadsheetApp.BorderStyle.SOLID_THICK); var r = rg.getLastRow(), c = rg.getLastColumn(); try { sh.getRange(r + 1, rg.getColumn() + 1, 1, rg.getNumColumns()).setBackground('#00000022'); sh.getRange(rg.getRow() + 1, c + 1, rg.getNumRows(), 1).setBackground('#00000022'); } catch (e) { } }
-function insertLogo_(sh, col, row) { if (!CFG.LOGO_URL) return; try { var blob = UrlFetchApp.fetch(CFG.LOGO_URL).getBlob(), img = sh.insertImage(blob, col, row); img.setWidth(150).setHeight(150); } catch (e) { } }
 function rng_(row, col, nRows, nCols) { return colLetter_(col) + row + ':' + colLetter_(col + nCols - 1) + (row + nRows - 1); }
 function colLetter_(n) { var s = ''; while (n > 0) { var r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = (n - 1 - r) / 26; } return s; }
 function dayNames_(days) { var N = ['', 'LUNI', 'MARȚI', 'MIERCURI', 'JOI', 'VINERI']; return days.map(function (d) { return N[d]; }).join(' – '); }
 function monthLabel_(d) { var M = ['IANUARIE','FEBRUARIE','MARTIE','APRILIE','MAI','IUNIE','IULIE','AUGUST','SEPTEMBRIE','OCTOMBRIE','NOIEMBRIE','DECEMBRIE']; return M[d.getMonth()] + ' ' + d.getFullYear(); }
-function setWorkingMonth() { var ui = SpreadsheetApp.getUi(); var res = ui.prompt('Luna de lucru', 'Scrie luna în format AAAA-LL (Ex: 2026-09)', ui.ButtonSet.OK_CANCEL); if (res.getSelectedButton() !== ui.Button.OK) return; var v = res.getResponseText().trim(); if (!/^\d{4}-\d{2}$/.test(v)) { ui.alert('Format greșit.'); return; } PropertiesService.getDocumentProperties().setProperty('MONTH', v);
+function setWorkingMonth() {
+  cerAdmin_();
+  var ui = SpreadsheetApp.getUi(); var res = ui.prompt('Luna de lucru', 'Scrie luna în format AAAA-LL (Ex: 2026-09)', ui.ButtonSet.OK_CANCEL); if (res.getSelectedButton() !== ui.Button.OK) return; var v = res.getResponseText().trim(); if (!/^\d{4}-\d{2}$/.test(v)) { ui.alert('Format greșit.'); return; } PropertiesService.getDocumentProperties().setProperty('MONTH', v);
   var p = v.split('-'), luna = new Date(Number(p[0]), Number(p[1]) - 1, 1);
   var q = ui.alert('Luna a fost salvată: ' + monthLabel_(luna) + '\n\n' +
                    'Grila va avea ' + numarSaptamani_(luna) + ' săptămâni complete.\n\n' +
@@ -466,13 +494,15 @@ function setWorkingMonth() { var ui = SpreadsheetApp.getUi(); var res = ui.promp
   else { SpreadsheetApp.getActiveSpreadsheet().toast('Luna a fost salvată. Rulează „3. Recalculează zilele din calendar" când ești gata.', 'MASTERS', 8); }
 }
 function refreshCalendar() {
+  cerAdmin_();
   var ss = SpreadsheetApp.getActiveSpreadsheet(), m = getWorkingMonth_();
   GROUPS.forEach(function (g) { buildGroupSheet_(ss, g, m); });
   buildDashboard_(ss);
   try { invalidateSnapshot_(); } catch (err) {}
   ss.toast('Calendar recalculat: ' + monthLabel_(m) + ' — ' + numarSaptamani_(m) + ' săptămâni.', 'MASTERS', 6);
 }
-function syncParentView() { SpreadsheetApp.getUi().alert('Apasă Fișier -> Trimite (Share) -> Public pentru a partaja tabelul.'); }
+function syncParentView() {
+  cerAdmin_(); SpreadsheetApp.getUi().alert('Apasă Fișier -> Trimite (Share) -> Public pentru a partaja tabelul.'); }
 
 /* ═══════════════════════════ 5. WEB APP: PORTAL PĂRINȚI ═══════════════════════════ */
 var PORTAL = {
@@ -499,7 +529,7 @@ function doGet(e) {
         boot.token = t;
         boot.gdprOk = sess.gdprOk;
         boot.installUrl = boot.appUrl ? (boot.appUrl + '?t=' + encodeURIComponent(t)) : '';
-        var r = getAthleteData(sess.telefon);
+        var r = getAthleteData_(sess.telefon);
         if (r && r.success) boot.data = r.data;
       }
     }
@@ -589,7 +619,7 @@ function extractAthletesFromSheet_(sheet, cleanPhone, sDate, azi) {
  * Înainte: recitea TOATE foile lunare (valori + fundaluri) la fiecare login => 5-20 s.
  * Acum: citește din snapshot-ul comprimat din CacheService => sub 1 s.
  */
-function getAthleteData(phone) {
+function getAthleteData_(phone) {
   var ph = normPhone_(phone);
   if (!ph) return { error: 'Introduceți un număr valid (minim 9 cifre).' };
 
@@ -664,6 +694,7 @@ function composeAthleteData_(snap, ph, azi) {
               inactiv: esteInactivLunaCurenta, luna: athData.mainData.lunaSursa, arhive: arhiveFinale,
               sedinteTarget: sedinteTarget, programFix: programFixLabel_(a, g), sedinteEfectuate: sedinteEfectuate, procentProgramFix: procentProgramFix,
               infoInterne: a.infoInterne || '',
+              tarif: a.tarif || '',
               istoricCurent: athData.mainData.istoric || [],
               /* ── FAZA 4 ── */
               recuperari_portofel: portofelRecuperari_(athData.archiveList, azi),
@@ -827,6 +858,24 @@ function getSnapshot_(forceRebuild) {
 }
 
 /**
+ * Numele foii-sursă pentru luna de lucru, dedus automat („OCTOMBRIE 2026_PREZENTA").
+ * Dacă foaia nu există încă în registrul brut, se revine la CFG.SOURCE_SHEET.
+ * Fără asta, CFG.SOURCE_SHEET trebuia editat manual în cod la fiecare lună, iar
+ * o omisiune făcea ca portalul și emailurile să anunțe o lună, folosind datele alteia.
+ */
+function sourceSheetName_(src) {
+  try {
+    var dorit = (monthLabel_(getWorkingMonth_()) + '_PREZENTA').toUpperCase();
+    var sheets = src.getSheets();
+    for (var i = 0; i < sheets.length; i++) {
+      var n = sheets[i].getName().trim();
+      if (n.toUpperCase() === dorit) return n;
+    }
+  } catch (err) {}
+  return CFG.SOURCE_SHEET.trim();
+}
+
+/**
  * Citește o foaie din registrul brut.
  * OPTIMIZARE: fundalurile (apelul cel mai lent din API-ul Sheets) se citesc doar
  * pentru primele 50 de coloane — singurele scanate de readDayHeader_.
@@ -841,7 +890,7 @@ function parseSourceSheet_(sheet) {
 
 function buildSnapshot_() {
   var src = SpreadsheetApp.openById(CFG.SOURCE_ID);
-  var curName = CFG.SOURCE_SHEET.trim();
+  var curName = sourceSheetName_(src);
   var curDate = parseSheetDate_(curName) || new Date();
 
   var cand = [];
@@ -916,7 +965,10 @@ function sessValidate_(token) {
   var hash = sha256Hex_(token), ck = 'SESS_' + hash;
 
   var hit = cacheGetObj_(ck);
-  if (hit) { if (hit.exp && Date.now() > hit.exp) { cacheDrop_(ck); return null; } return hit; }
+  if (hit) {
+    if (hit.exp && Date.now() > hit.exp) { cacheDrop_(ck); return null; }
+    return sessCuGdpr_(hit);
+  }
 
   var found = sessFindRow_(hash);
   if (!found) return null;
@@ -932,9 +984,7 @@ function sessValidate_(token) {
   var sess = {
     telefon: tel,
     prenume: String(v[2] || ''),
-    // Acordul e valabil dacă a fost confirmat în portal pentru versiunea curentă
-    // SAU dacă părintele chiar a completat formularul (dovada din foaia de răspunsuri).
-    gdprOk: (String(v[8] || '') === String(CFG.GDPR_VERSION)) || gdprDinFormular_(tel),
+    gdprPortal: (String(v[8] || '').indexOf(String(CFG.GDPR_VERSION)) === 0),
     exp: exp
   };
   cachePutObj_(ck, sess, 21600);
@@ -948,14 +998,27 @@ function sessValidate_(token) {
     }
   } catch (err) {}
 
-  return sess;
+  return sessCuGdpr_(sess);
 }
 
-function sessSetGdpr_(token) {
+/**
+ * Starea acordului se recalculează la FIECARE validare, nu se memorează odată cu
+ * sesiunea: altfel un părinte care tocmai a completat formularul ar fi continuat
+ * să vadă fereastra de acord încă șase ore.
+ */
+function sessCuGdpr_(sess) {
+  var ok = !!sess.gdprPortal;
+  if (!ok) { try { ok = gdprDinFormular_(sess.telefon); } catch (err) {} }
+  return { telefon: sess.telefon, prenume: sess.prenume, gdprPortal: !!sess.gdprPortal, gdprOk: ok, exp: sess.exp };
+}
+
+function sessSetGdpr_(token, sursa) {
   if (!token) return false;
   var hash = sha256Hex_(token), found = sessFindRow_(hash);
   if (!found) return false;
-  sessSheet_().getRange(found.row, 9, 1, 2).setValues([[CFG.GDPR_VERSION, new Date()]]);
+  // Sufixul distinge acordul DOVEDIT prin formular de cel declarat de părinte în portal.
+  var eticheta = CFG.GDPR_VERSION + (sursa === 'declarat' ? ' (declarat în portal)' : '');
+  sessSheet_().getRange(found.row, 9, 1, 2).setValues([[eticheta, new Date()]]);
   cacheDrop_('SESS_' + hash);
   return true;
 }
@@ -1034,7 +1097,7 @@ function portalRefresh(token) {
   var sess = sessValidate_(token);
   if (!sess) return { error: 'SESIUNE_EXPIRATA' };
 
-  var res = getAthleteData(sess.telefon);
+  var res = getAthleteData_(sess.telefon);
   if (!res || res.error) return { error: (res && res.error) || 'Eroare necunoscută.' };
 
   var appUrl = portalAppUrl_();
@@ -1050,7 +1113,25 @@ function portalRefresh(token) {
 }
 
 /** Consimțământul GDPR devine stare de SERVER, cu versiune și dată — dovadă verificabilă. */
-function portalAcceptGdpr(token) { return { success: sessSetGdpr_(token) }; }
+/**
+ * Acord declarat de părinte în portal. Se folosește DOAR ca plasă de siguranță,
+ * după ce verificarea automată în formular a eșuat — altfel un părinte cu numele
+ * scris diferit în formular ar rămâne blocat definitiv în afara aplicației.
+ */
+function portalAcceptGdpr(token) { return { success: sessSetGdpr_(token, 'declarat') }; }
+
+/**
+ * Reverifică acordul imediat după ce părintele spune că a completat formularul.
+ * Golește memoria cache a răspunsurilor, altfel ar trebui să aștepte 10 minute.
+ */
+function portalGdprVerifica(token) {
+  var sess = sessValidate_(token);
+  if (!sess) return { error: 'SESIUNE_EXPIRATA' };
+  cacheDrop_('FORMIDX2');
+  cacheDrop_('SESS_' + sha256Hex_(token));
+  var dupa = sessValidate_(token);
+  return { success: true, gdprOk: !!(dupa && dupa.gdprOk) };
+}
 
 /** Deconectare reală: sesiunea este revocată pe server, nu doar uitată în browser. */
 function portalLogout(token) { return { success: sessRevoke_(token) }; }
@@ -1058,6 +1139,7 @@ function portalLogout(token) { return { success: sessRevoke_(token) }; }
 /* ─────────── 6.8 Mentenanță (meniu) ─────────── */
 
 function portalRebuildCache() {
+  cerAdmin_();
   var ui = SpreadsheetApp.getUi();
   invalidateSnapshot_();
   var t0 = Date.now();
@@ -1070,6 +1152,7 @@ function portalRebuildCache() {
 }
 
 function portalCleanSessions() {
+  cerAdmin_();
   var ui = SpreadsheetApp.getUi(), sh = sessSheet_(), last = sh.getLastRow();
   if (last < 2) { ui.alert('Nu există sesiuni înregistrate.'); return; }
   var vals = sh.getRange(2, 1, last - 1, SESS_.HDR.length).getValues(), now = Date.now(), sterse = 0;
@@ -1082,6 +1165,7 @@ function portalCleanSessions() {
 }
 
 function portalDiagnostic() {
+  cerAdmin_();
   var ui = SpreadsheetApp.getUi(), out = [];
   out.push('URL aplicație: ' + (portalAppUrl_() || '(nepublicată încă)'));
   try {
@@ -1181,7 +1265,7 @@ function portalCerere(token, sportiv, tip, dataVizata, detalii) {
   if (!String(sportiv || '').trim()) return { error: 'Sportiv nespecificat.' };
 
   // Sportivul trebuie să aparțină chiar acestui părinte.
-  var res = getAthleteData(sess.telefon);
+  var res = getAthleteData_(sess.telefon);
   if (!res || !res.success) return { error: 'Nu am putut verifica sportivul.' };
   var alMeu = false, tinta = normName_(sportiv);
   res.data.forEach(function (a) { if (normName_(a.nume) === tinta) alMeu = true; });
@@ -1405,18 +1489,6 @@ function gdprDinFormular_(ph) {
   } catch (err) { return false; }
 }
 
-function emailDinFormular_(ph, numeComplet) {
-  try {
-    var rec = formLookup_([ph], numeComplet || '');
-    if (rec && rec.email) return rec.email;
-    var nume = numeComplet ? [] : numeSportiviPentruTelefon_(ph);
-    for (var i = 0; i < nume.length; i++) {
-      var r2 = formLookup_(null, nume[i]);
-      if (r2 && r2.email) return r2.email;
-    }
-    return '';
-  } catch (err) { return ''; }
-}
 
 /** Detaliile de consimțământ afișate în Centrul GDPR din portal. */
 function portalGdprInfo(token) {
@@ -1543,6 +1615,7 @@ function emailSendReminder() { processEmailNotifications('reminder'); }
 function emailSendMonthly()  { processEmailNotifications('monthly'); }
 
 function processEmailNotifications(type) {
+  cerAdmin_();
   var ui = SpreadsheetApp.getUi();
   if (!CFG.EMAIL_ON) ui.alert('🛠️ MOD TESTARE ACTIV 🛠️\n\nMesajele NU pleacă real.\nVei primi o previzualizare pe ecran.\n\nPentru trimitere reală: CFG.EMAIL_ON = true');
 
@@ -1600,7 +1673,9 @@ function emailRun_(type, lunaLucru) {
   snap.months.forEach(function (m) { if (m.name === snap.curSheet) curLuna = m; });
   if (!curLuna) { rap.eroare = 'Luna curentă nu a fost găsită în registrul brut.'; return rap; }
 
-  var monthText = monthLabel_(lunaLucru || getWorkingMonth_());
+  // Luna scrisă în email derivă din foaia efectiv citită, ca textul și datele
+  // să nu poată diverge niciodată.
+  var monthText = monthLabel_(parseSheetDate_(snap.curSheet) || lunaLucru || getWorkingMonth_());
 
   curLuna.ath.forEach(function (a) {
     if ((type === 'reminder' || type === 'reminder_final') && a.plata === 'Achitat') return;
@@ -1663,9 +1738,9 @@ function emailPlanLuna_(luna) {
 }
 
 /** Rulează zilnic. Trimite doar în zilele planificate și doar o dată pe lună. */
-function emailAutoWorker() {
+function emailAutoWorker(e) {
+  if (!e) cerAdmin_();          // apelat direct din client, nu de un declanșator
   try {
-    if (!CFG.EMAIL_AUTO) return;
     var luna = getWorkingMonth_();
     var plan = emailPlanLuna_(luna);
     if (!plan) return;
@@ -1689,8 +1764,9 @@ function emailAutoTrimite_(type, luna, cheie) {
 }
 
 function installEmailAuto() {
+  cerAdmin_();
   var ui = SpreadsheetApp.getUi();
-  removeEmailAuto(true);
+  removeEmailAutoTrigger_();
   ScriptApp.newTrigger('emailAutoWorker').timeBased().everyDays(1).atHour(9).create();
   var plan = emailPlanLuna_(getWorkingMonth_());
   ui.alert('✅ Trimitere automată activată.\n\n' +
@@ -1704,15 +1780,21 @@ function installEmailAuto() {
                   : '⚠️ CFG.EMAIL_ON = false → nu va pleca nimic.\nPune-l pe true când ești gata.'));
 }
 
-function removeEmailAuto(silent) {
+function removeEmailAutoTrigger_() {
   var t = ScriptApp.getProjectTriggers();
   for (var i = 0; i < t.length; i++) {
     if (t[i].getHandlerFunction() === 'emailAutoWorker') ScriptApp.deleteTrigger(t[i]);
   }
+}
+
+function removeEmailAuto(silent) {
+  cerAdmin_();
+  removeEmailAutoTrigger_();
   if (silent !== true) SpreadsheetApp.getUi().alert('❌ Trimiterea automată a fost oprită.');
 }
 
 function emailPlanArata() {
+  cerAdmin_();
   var ui = SpreadsheetApp.getUi(), luna = getWorkingMonth_(), plan = emailPlanLuna_(luna);
   if (!plan) { ui.alert('Nu am putut calcula planul pentru ' + monthLabel_(luna) + '.'); return; }
   var f = function (d) { return ZI_RO_[(d.getDay() === 0) ? 7 : d.getDay()] + ', ' + d.getDate() + ' ' + LUNI_RO[d.getMonth()].toLowerCase(); };
@@ -1732,6 +1814,7 @@ function emailPlanArata() {
  * Prima rulare declanșează dialogul de autorizare pentru MailApp, dacă lipsește.
  */
 function emailVerifica() {
+  cerAdmin_();
   var ui = SpreadsheetApp.getUi(), out = [];
   var cota = -1;
   try { cota = MailApp.getRemainingDailyQuota(); out.push('Cotă rămasă azi: ' + cota + ' emailuri'); }
@@ -1766,6 +1849,7 @@ function emailVerifica() {
 /* ─────────── 7.6 Mentenanță Faza 4 ─────────── */
 
 function portalCereriDeschide() {
+  cerAdmin_();
   var sh = cereriSheet_();
   try { sh.showSheet(); } catch (err) {}
   SpreadsheetApp.getActiveSpreadsheet().setActiveSheet(sh);
@@ -1774,6 +1858,7 @@ function portalCereriDeschide() {
 }
 
 function portalAnunturiDeschide() {
+  cerAdmin_();
   var sh = anunturiSheet_();
   try { sh.showSheet(); } catch (err) {}
   SpreadsheetApp.getActiveSpreadsheet().setActiveSheet(sh);
@@ -2000,6 +2085,8 @@ function emailCompune_(type, a, luna, monthText) {
       '</table>' +
       '<div style="margin-top:12px;padding:11px 13px;background:#FFF6E6;border-radius:8px;border:1px solid #FFE3B0;font-size:13px;color:#7A4B00;">' +
       'La <strong>detalii plată</strong> scrieți exact:<br><strong style="color:#111;">' + eHtml_(refPlata) + '</strong></div>' +
+      '<div style="margin-top:10px;padding:11px 13px;background:#E8F6FD;border-radius:8px;border:1px solid #BEE3F5;font-size:13px;color:#0B4F6C;">' +
+      '📱 <strong>Plată prin scanare:</strong> deschideți portalul, iar la secțiunea de plată găsiți un <strong>cod QR</strong> pe care aplicația băncii îl citește și completează singură transferul.</div>' +
       (tarifText ? '' : '<div style="margin-top:9px;font-size:12px;color:#7A828A;">Suma exactă vă este comunicată de antrenor.</div>');
     h.push(eBox_(final ? '#C62828' : C.magenta, 'De achitat', plata));
   } else {
@@ -2083,6 +2170,7 @@ function emailCompune_(type, a, luna, monthText) {
 
 /** Previzualizează șablonul pe un sportiv real, fără a trimite nimic. */
 function emailPreviewSablon() {
+  cerAdmin_();
   var ui = SpreadsheetApp.getUi();
   var snap = getSnapshot_(false);
   if (!snap) { ui.alert('Nu am putut citi registrul brut.'); return; }

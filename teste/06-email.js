@@ -84,6 +84,8 @@ console.log('\n\x1b[1mO. Conținutul emailului\x1b[0m');
   A('Salutul de lună nouă NU conține avertizarea', !/suspend/i.test(mon.html));
   A('Bară de progres pe tabele (nu div cu width animat)', mon.html.indexOf('class="mx-bar"') > -1 || rem.html.indexOf('class="mx-bar"') > -1);
   A('Text de previzualizare ascuns pentru inbox', rem.html.indexOf('max-height:0') > -1);
+  A('Emailul trimite către codul QR din portal', rem.html.indexOf('Plată prin scanare') > -1);
+  A('Salutul pentru un sportiv achitat NU conține invitația la plată', !/Plată prin scanare/.test(mon.html) || !/Achitat<\/strong>/.test(mon.html));
 
   fs.writeFileSync(__dirname + '/../livrare/exemplu-email-plata.html', rem.html);
   fs.writeFileSync(__dirname + '/../livrare/exemplu-email-luna-noua.html', mon.html);

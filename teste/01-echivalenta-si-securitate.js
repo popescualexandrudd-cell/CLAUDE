@@ -67,7 +67,7 @@ function memSheet(name) {
 function makeSandbox(sheets) {
   const cache = {}, dp = {}, container = {};
   const bag = { getProperty: k => (k in dp ? dp[k] : null), setProperty: (k,v) => { dp[k] = String(v); } };
-  return { console,
+  const sb = { console,
     SpreadsheetApp: {
       openById: () => ({ getSheets: () => sheets, getSheetByName: () => null }),
       getActiveSpreadsheet: () => ({
@@ -96,13 +96,22 @@ function makeSandbox(sheets) {
     ScriptApp: { getService: () => ({ getUrl: () => 'https://script.google.com/macros/s/TEST/exec' }), getProjectTriggers: () => [] },
     DriveApp: { getFileById: () => ({ getLastUpdated: () => new Date(0), getName: () => 'PREZENTA CURSURI' }) },
     LockService: { getScriptLock: () => ({ tryLock: () => true, waitLock: () => true, releaseLock: () => {} }) },
+    __ADMIN: 'owner@club.ro',
+    Session: { getActiveUser: function(){ return { getEmail: function(){ return sb.__ADMIN; } }; },
+               getEffectiveUser: function(){ return { getEmail: function(){ return 'owner@club.ro'; } }; } },
     UrlFetchApp: {}, HtmlService: {}, MailApp: {} };
+  return sb;
 }
 
 const T = new Date(2026, 8, 3, 12, 0, 0).getTime();
 function load(file, sheets) {
   const ctx = vm.createContext(makeSandbox(sheets));
   vm.runInContext(fs.readFileSync(file,'utf8'), ctx, { filename: file });
+  // getAthleteData a devenit privată (getAthleteData_), ca să nu mai fie expusă
+  // prin google.script.run. În teste îi punem un alias, ca vechile verificări să
+  // continue să compare aceeași logică între versiuni.
+  try { vm.runInContext('if (typeof getAthleteData === "undefined" && typeof getAthleteData_ === "function") { function getAthleteData(p){ return getAthleteData_(p); } }', ctx); } catch (e) {}
+
   vm.runInContext(`Date = (function(R,T){ function D(...a){ return a.length ? new R(...a) : new R(T); } D.prototype=R.prototype; D.now=()=>T; return D; })(Date, ${T});`, ctx);
   return ctx;
 }
@@ -112,7 +121,7 @@ const okmsg = m => console.log('  \x1b[32m✔\x1b[0m ' + m);
 const bad   = m => { fail++; console.log('  \x1b[31m✘\x1b[0m ' + m); };
 /* Faza 4 adaugă doar câmpuri NOI în payload. Verificăm două lucruri:
    (1) tot ce exista înainte este neschimbat, (2) noile câmpuri sunt prezente. */
-const CAMPURI_NOI = ['recuperari_portofel', 'cereri'];
+const CAMPURI_NOI = ['recuperari_portofel', 'cereri', 'tarif'];
 function faraCampuriNoi(r) {
   if (!r || !r.data) return r;
   return { ...r, data: r.data.map(a => { const c = { ...a }; CAMPURI_NOI.forEach(k => delete c[k]); return c; }) };
@@ -138,6 +147,66 @@ console.log('\n\x1b[1mA. Echivalență VECHI ↔ NOU (date curate, 2 luni, 2 fra
 }
 
 /* ══ B. CORECTURI intenționate pe date murdare ══ */
+console.log('\n\x1b[1mA2. Suprafața publică a aplicației web\x1b[0m');
+{
+  const fs2 = require('fs');
+  const cod = fs2.readFileSync('cod.gs.txt','utf8');
+  const vechi = fs2.readFileSync(SCRATCH + '/_cod.gs.original.js','utf8');
+  const publice = t => (t.match(/^function ([a-zA-Z][a-zA-Z0-9]*)\s*\(/gm)||[]).map(x=>x.replace(/^function /,'').replace(/\s*\($/,''));
+
+  assert('getAthleteData NU mai este funcție publică (era apelabilă fără al doilea factor)',
+    publice(cod).indexOf('getAthleteData') === -1 && publice(vechi).indexOf('getAthleteData') > -1);
+  assert('Punctele de intrare ale portalului au rămas publice',
+    ['portalLogin','portalRefresh','portalCerere','portalLogout'].every(f => publice(cod).indexOf(f) > -1));
+  assert('doGet a rămas public', publice(cod).indexOf('doGet') > -1);
+
+  const admin = ['buildAll','refreshCalendar','triggerManualSync','setWorkingMonth','removeSyncs',
+                 'portalCleanSessions','portalRebuildCache','installEmailAuto','removeEmailAuto',
+                 'processEmailNotifications','emailVerifica','installLiveSync','installTimeSync'];
+  const fara = admin.filter(f => {
+    const i = cod.indexOf('function ' + f + '(');
+    return i < 0 || cod.slice(i, i + 400).indexOf('cerAdmin_()') < 0;
+  });
+  assert('Toate funcțiile de administrare cer drepturi de admin' + (fara.length ? ' — lipsesc: ' + fara.join(', ') : ''), fara.length === 0);
+  assert('Punctele publice ale portalului NU cer drepturi de admin',
+    ['portalLogin','portalRefresh','portalCerere'].every(f => {
+      const i = cod.indexOf('function ' + f + '(');
+      return cod.slice(i, i + 300).indexOf('cerAdmin_()') < 0;
+    }));
+}
+
+console.log('\n\x1b[1mA3. Garda de administrator, în execuție\x1b[0m');
+{
+  const sheets = [mkSheet('SEPTEMBRIE 2026_PREZENTA', CLEAN_SEP)];
+  const ctx = load('cod.gs.txt', sheets);
+  const incearca = expr => { try { vm.runInContext(expr, ctx); return 'OK'; } catch (e) { return e.message; } };
+
+  // 1) din meniu: utilizatorul activ este proprietarul
+  assert('Admin: esteAdmin_() = true', vm.runInContext('esteAdmin_()', ctx) === true);
+  assert('Admin: cerAdmin_() trece',   incearca('cerAdmin_()') === 'OK');
+
+  // 2) vizitator anonim al aplicației web: getActiveUser() întoarce șir gol
+  vm.runInContext('__ADMIN = ""', ctx);
+  assert('Vizitator: esteAdmin_() = false', vm.runInContext('esteAdmin_()', ctx) === false);
+
+  const blocate = ['buildAll()','refreshCalendar()','triggerManualSync()','setWorkingMonth()',
+                   'portalCleanSessions()','portalRebuildCache()','installTimeSync()','removeSyncs()',
+                   'importDataCore()','liveSyncWorker()','emailAutoWorker()'];
+  const scapate = blocate.filter(e => incearca(e).indexOf('doar administratorului') < 0);
+  assert('Vizitatorul este blocat la toate cele ' + blocate.length + ' acțiuni de administrare' +
+         (scapate.length ? ' — au scăpat: ' + scapate.join(', ') : ''), scapate.length === 0);
+
+  // 3) portalul rămâne accesibil vizitatorului (altfel am fi rupt aplicația)
+  assert('Vizitator: portalLogin funcționează normal',
+    vm.runInContext('portalLogin("0723028164","Andrei","ua")', ctx).success === true);
+  const tok = vm.runInContext('portalLogin("0723028164","Andrei","ua").token', ctx);
+  assert('Vizitator: portalRefresh funcționează normal',
+    vm.runInContext(`portalRefresh(${JSON.stringify(tok)})`, ctx).success === true);
+  // doGet nu trebuie să fie blocat de gardă (randarea HTML nu e simulată aici)
+  assert('Vizitator: doGet NU este blocat de gardă',
+    incearca('doGet({parameter:{}})').indexOf('doar administratorului') < 0);
+}
+
 console.log('\n\x1b[1mB. Corecturi de securitate/normalizare (date murdare)\x1b[0m');
 {
   const sheets = [mkSheet('SEPTEMBRIE 2026_PREZENTA', MESSY_SEP)];

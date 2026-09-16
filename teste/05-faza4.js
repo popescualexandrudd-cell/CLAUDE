@@ -115,15 +115,15 @@ console.log('\n\x1b[1mL. Potrivirea formular ↔ registru (cazul real din produc
   A('Telefon diferit, dar numele sportivului se potrivește → acord recunoscut',
     vm.runInContext('gdprDinFormular_("723028164")', ctx) === true);
   A('Emailul este găsit prin numele sportivului',
-    vm.runInContext('emailDinFormular_("723028164","POPESCU ANDREI")', ctx) === 'alex@exemplu.ro');
+    (vm.runInContext('formLookup_(["723028164"],"POPESCU ANDREI")', ctx)||{}).email === 'alex@exemplu.ro');
   A('Sportiv fără răspuns la formular → fără email',
-    vm.runInContext('emailDinFormular_("744111222","IONESCU RARES")', ctx) === '');
+    !(vm.runInContext('formLookup_(["744111222"],"IONESCU RARES")', ctx)||{}).email);
 
   /* Ordinea nume/prenume diferă adesea între formular și registru. */
   const INV = [ALT_TEL[0], ['16.09.2026 12:50:21','X','Andrei Popescu','0799999999','inv@exemplu.ro']];
   const ci = LIB.load('cod.gs.txt', { 'Form_Responses': INV });
   A('Nume inversat („Andrei Popescu" ≡ „Popescu Andrei") → recunoscut',
-    vm.runInContext('emailDinFormular_("723028164","POPESCU ANDREI")', ci) === 'inv@exemplu.ro');
+    (vm.runInContext('formLookup_(["723028164"],"POPESCU ANDREI")', ci)||{}).email === 'inv@exemplu.ro');
 
   /* Al doilea număr dintr-o celulă CONTACT cu două numere. */
   const AL2 = [ALT_TEL[0], ['16.09.2026 12:50:21','X','Nu Conteaza','0755 333 444','doi@exemplu.ro']];
@@ -138,7 +138,7 @@ console.log('\n\x1b[1mL. Potrivirea formular ↔ registru (cazul real din produc
   ];
   const cn = LIB.load('cod.gs.txt', { 'Form_Responses': DOAR_NUME });
   A('Formular fără coloană de telefon, dar cu nume → funcționează',
-    vm.runInContext('emailDinFormular_("723028164","POPESCU ANDREI")', cn) === 'n@exemplu.ro');
+    (vm.runInContext('formLookup_(["723028164"],"POPESCU ANDREI")', cn)||{}).email === 'n@exemplu.ro');
 }
 
 console.log(fail ? '\n\x1b[31m'+fail+' eșec(uri)\x1b[0m\n' : '\n\x1b[32mToate testele Fazei 4 au trecut.\x1b[0m\n');

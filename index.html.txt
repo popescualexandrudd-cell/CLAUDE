@@ -289,7 +289,10 @@
         <a href="https://docs.google.com/forms/d/e/1FAIpQLSc8W-bndjC6SX21BHz8IfUYrXDjhrKZoWsJutR87x2mOc0DtA/viewform?usp=dialog" target="_blank" class="btn-gdpr" onclick="gdprAmDeschisFormularul()" style="text-align: center; font-size: 13px;">📝 COMPLETEAZĂ FORMULARUL</a>
         <button class="btn-gdpr" onclick="gdprVerifica(this)" style="background: linear-gradient(135deg, #00AEEF, #C4D600);">✅ AM COMPLETAT — VERIFICĂ</button>
         <p id="gdpr-mesaj" style="font-size:12px; font-weight:700; margin:12px 0 0 0; display:none;"></p>
-        <button id="gdpr-declar" class="btn-close-modal" onclick="gdprDeclar()" style="display:none;">Confirm pe propria răspundere că am completat</button>
+        <div id="gdpr-fallback" style="display:none;">
+          <button class="btn-close-modal" onclick="gdprDeclar()">Confirm pe propria răspundere că am completat</button>
+          <a href="https://wa.me/40726409988?text=Bun%C4%83%20ziua!%20Am%20completat%20Acordul%20GDPR%2C%20dar%20portalul%20nu%20%C3%AEl%20g%C4%83se%C8%99te." target="_blank" style="display:block; text-align:center; font-size:11px; color:#888; margin-top:8px; text-decoration:underline;">Sau scrie-ne pe WhatsApp</a>
+        </div>
       </div>
     </div>
 
@@ -749,17 +752,34 @@
 
         google.script.run.withSuccessHandler(function (r) {
           btn.innerText = textInitial; btn.disabled = false;
+
+          // Sesiune expirată: nu e o problemă de acord, ci de autentificare.
+          if (r && r.error === 'SESIUNE_EXPIRATA') {
+            Store.del('mastersToken'); Store.del('mastersCache');
+            SESSION.token = ''; gdprInchide();
+            document.getElementById('athletes-container').innerHTML = '';
+            backToLogin(); showLoginError('Sesiunea a expirat. Autentifică-te din nou.');
+            return;
+          }
           if (r && r.gdprOk) { SESSION.gdprOk = true; gdprInchide(); return; }
-          gdprIncercari++;
-          gdprMesaj(gdprIncercari < 2
+
+          gdprEsec(gdprIncercari < 1
             ? 'Încă nu găsim răspunsul tău. Dacă tocmai l-ai trimis, mai încearcă o dată în câteva secunde.'
-            : 'Tot nu îl găsim. Probabil numele sportivului din formular diferă de cel din evidența clubului.',
-            '#d32f2f');
-          if (gdprIncercari >= 2) document.getElementById('gdpr-declar').style.display = 'block';
+            : 'Tot nu îl găsim. Probabil numele sportivului din formular diferă de cel din evidența clubului.');
         }).withFailureHandler(function () {
           btn.innerText = textInitial; btn.disabled = false;
-          gdprMesaj('Eroare de conexiune. Încearcă din nou.', '#d32f2f');
+          // Și eșecul de conexiune trebuie să conteze: altfel, offline, părintele
+          // ar rămâne blocat pentru totdeauna, fără nicio cale de ieșire.
+          gdprEsec('Nu am putut verifica (conexiune indisponibilă). Mai încearcă.');
         }).portalGdprVerifica(SESSION.token);
+      }
+
+      /* După două încercări fără succes — indiferent de motiv — părintele
+         primește o cale de ieșire. Fără asta, o eroare de rețea l-ar bloca definitiv. */
+      function gdprEsec(mesaj) {
+        gdprIncercari++;
+        gdprMesaj(mesaj, '#d32f2f');
+        if (gdprIncercari >= 2) document.getElementById('gdpr-fallback').style.display = 'block';
       }
 
       function gdprDeclar() {

@@ -47,7 +47,7 @@ console.log('\n\x1b[1mS. Acordul GDPR este obligatoriu\x1b[0m');
   A('Fereastra nu mai are buton de amânare', html.indexOf('Voi completa mai târziu') === -1);
   A('Există butonul de reverificare', html.indexOf('AM COMPLETAT — VERIFICĂ') > -1);
   A('Declarația pe proprie răspundere este ascunsă implicit',
-    /id="gdpr-declar"[^>]*display:none/.test(html));
+    /id="gdpr-fallback"[^>]*display:none/.test(html));
   A('closeModal nu mai poate închide fără acord',
     /function closeModal[\s\S]{0,400}if \(!SESSION\.gdprOk\)/.test(html));
 

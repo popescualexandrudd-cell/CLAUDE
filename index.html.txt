@@ -15,7 +15,7 @@
     <link rel="apple-touch-icon" href="https://i.postimg.cc/2ythf64H/unnamed-removebg-preview-(1).png">
     <link rel="icon" href="https://i.postimg.cc/2ythf64H/unnamed-removebg-preview-(1).png">
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800;900&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js" defer></script>
 
     <style>
       body { font-family: 'Montserrat', sans-serif; background-color: #f4f7f9; margin: 0; padding: 0; display: flex; flex-direction: column; align-items: center; min-height: 100vh; overflow-x: hidden; color: #333; position: relative; -webkit-tap-highlight-color: transparent;}
@@ -48,9 +48,9 @@
       
       #login-view { display: block; text-align: center; }
       h2 { font-size: 24px; color: #111; margin-bottom: 10px; font-weight: 900; letter-spacing: 1px; }
-      input[type="tel"] { width: 100%; padding: 18px; font-size: 18px; background: #fff; border: 2px solid #e0e5eb; color: #333; border-radius: 14px; box-sizing: border-box; margin-bottom: 15px; text-align: center; font-family: 'Montserrat', sans-serif; font-weight: 800; outline: none; transition: all 0.3s ease; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02); }
-      input[type="tel"]:focus { border-color: #00AEEF; background: #fff; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02), 0 0 15px rgba(0, 174, 239, 0.2); transform: scale(1.02); }
-      input[type="tel"]::placeholder { color: #adb5bd; font-weight: 600; }
+      input[type="tel"], input[type="text"] { width: 100%; padding: 18px; font-size: 18px; background: #fff; border: 2px solid #e0e5eb; color: #333; border-radius: 14px; box-sizing: border-box; margin-bottom: 15px; text-align: center; font-family: 'Montserrat', sans-serif; font-weight: 800; outline: none; transition: all 0.3s ease; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02); }
+      input[type="tel"]:focus, input[type="text"]:focus { border-color: #00AEEF; background: #fff; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02), 0 0 15px rgba(0, 174, 239, 0.2); transform: scale(1.02); }
+      input[type="tel"]::placeholder, input[type="text"]::placeholder { color: #adb5bd; font-weight: 600; }
       
       button { background: linear-gradient(135deg, #EC008C, #F7941E); color: white; border: none; padding: 18px; width: 100%; font-size: 16px; font-weight: 900; border-radius: 14px; cursor: pointer; text-transform: uppercase; font-family: 'Montserrat', sans-serif; box-shadow: 0 10px 20px rgba(236,0,140,0.25), inset 0 -4px 0 rgba(0,0,0,0.1), inset 0 2px 0 rgba(255,255,255,0.3); transition: all 0.1s ease; position: relative; overflow: hidden; }
       button:active { transform: translateY(4px); box-shadow: 0 2px 5px rgba(236,0,140,0.2), inset 0 0 0 rgba(0,0,0,0.1), inset 0 2px 0 rgba(255,255,255,0.1); }
@@ -151,7 +151,7 @@
       /* DARK MODE */
       body.dark-mode { background-color: #121417 !important; color: #ffffff; }
       body.dark-mode .container { background: rgba(30, 30, 30, 0.85); border-color: #333; }
-      body.dark-mode input[type="tel"] { background: transparent; border-color: #f8f9fa; color: #fff; }
+      body.dark-mode input[type="tel"], body.dark-mode input[type="text"] { background: transparent; border-color: #f8f9fa; color: #fff; }
       body.dark-mode h2, body.dark-mode .card-title, body.dark-mode .modal-title { color: #fff !important; }
       body.dark-mode .card, body.dark-mode .skeleton-card { background: rgba(40, 40, 40, 0.95); border-top-color: #444; border-right-color: #222; border-bottom-color: #222; }
       body.dark-mode .card-subtitle { color: #aaa !important; }
@@ -220,9 +220,10 @@
       <p style="font-size:13px; color:#666; margin-bottom:30px; line-height:1.6; font-weight:500;">Introduceți numărul dvs. de telefon pentru a vedea evoluția sportivului.</p>
       
       <input type="tel" id="phoneInput" placeholder="07XX XXX XXX" oninput="formatPhone(this)" onkeypress="handleEnter(event)" maxlength="12">
+      <input type="text" id="prenumeInput" placeholder="Prenumele sportivului" onkeypress="handleEnter(event)" autocomplete="off" maxlength="40">
       
       <div class="remember-container">
-        <input type="checkbox" id="rememberMe">
+        <input type="checkbox" id="rememberMe" checked>
         <label for="rememberMe" class="remember-label">Ține-mă minte pe acest dispozitiv</label>
       </div>
 
@@ -273,6 +274,7 @@
           2. Alege opțiunea <b>"Add to Home screen"</b> (Adaugă pe ecranul de pornire).
         </div>
         
+        <a id="pwa-personal-link" href="#" target="_top" class="btn-gdpr" style="display:none; text-align:center; font-size:13px;">🔗 Deschide linkul meu personal (rămâi conectat)</a>
         <button class="btn-gdpr" onclick="closePwaModal()" style="margin-top:5px;">Am înțeles</button>
         <button class="btn-close-modal" onclick="dismissPwaModal()">Nu mai arăta acest mesaj</button>
       </div>
@@ -341,6 +343,8 @@
     <!-- BUTON PLUTITOR OFERTE -->
     <button class="fab-offers" onclick="showOffers()">🎁 Oferte</button>
 
+    <script>window.__BOOT__ = <?!= BOOT ?>;</script>
+
     <script>
       var textAnuntBaza = "🎾 PLĂȚILE SE FAC PÂNĂ PE DATA DE 10 A FIECĂREI LUNI! VĂ MULȚUMIM! &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ⭐ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 🎁 OFERTĂ 1+1: ADU UN PRIETEN ȘI AI LUNA URMĂTOARE 100% GRATUITĂ! IAR SPORTIVII NOI AU 50% REDUCERE DACĂ SE ÎNSCRIU ÎN ECHIPĂ DE DOI! 🎾 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ⭐ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ";
       var SETARI = {
@@ -357,8 +361,66 @@
          }
       };
 
+      /* ───────────────────────────────────────────────────────────────────────────
+         STOCARE SIGURĂ
+         În iframe-ul Apps Script, localStorage poate fi BLOCAT (Safari iOS, PWA pe
+         ecranul principal, storage partiționat) și aruncă excepție. Înainte, o
+         singură excepție oprea tot scriptul. Acum nimic nu mai poate arunca, iar
+         valorile au trei niveluri de rezervă.
+         ─────────────────────────────────────────────────────────────────────────── */
+      var Store = (function () {
+        var mem = {};
+        function tryFn(fn, dflt) { try { return fn(); } catch (e) { return dflt; } }
+        function cookieSet(k, v, days) {
+          try {
+            var d = new Date(); d.setTime(d.getTime() + ((days === undefined ? 365 : days) * 86400000));
+            document.cookie = encodeURIComponent(k) + '=' + encodeURIComponent(v) + ';expires=' + d.toUTCString() + ';path=/;SameSite=None;Secure';
+          } catch (e) {}
+        }
+        function cookieGet(k) {
+          try {
+            var m = document.cookie.match('(^|;)\\s*' + encodeURIComponent(k) + '\\s*=\\s*([^;]+)');
+            return m ? decodeURIComponent(m[2]) : null;
+          } catch (e) { return null; }
+        }
+        return {
+          get: function (k) {
+            var v = tryFn(function () { return localStorage.getItem(k); }, null);
+            if (v !== null && v !== undefined) return v;
+            v = tryFn(function () { return sessionStorage.getItem(k); }, null);
+            if (v !== null && v !== undefined) return v;
+            v = cookieGet(k);
+            if (v !== null) return v;
+            return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null;
+          },
+          set: function (k, val) {
+            val = String(val); mem[k] = val;
+            tryFn(function () { localStorage.setItem(k, val); });
+            tryFn(function () { sessionStorage.setItem(k, val); });
+            cookieSet(k, val);
+          },
+          del: function (k) {
+            delete mem[k];
+            tryFn(function () { localStorage.removeItem(k); });
+            tryFn(function () { sessionStorage.removeItem(k); });
+            cookieSet(k, '', -1);
+          }
+        };
+      })();
+
+      /* Escapare HTML — notițele antrenorilor și numele sunt text liber. */
+      function esc(v) {
+        return String(v == null ? '' : v)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      }
+
+      /* Starea sesiunii: sursa de adevăr este serverul, nu browserul. */
+      var BOOT = (window.__BOOT__ || {});
+      var SESSION = { token: '', gdprOk: false, appUrl: '', installUrl: '' };
+
       function initTheme() {
-        var savedTheme = localStorage.getItem('mastersTheme'), btn = document.getElementById('themeBtn');
+        var savedTheme = Store.get('mastersTheme'), btn = document.getElementById('themeBtn');
         if (savedTheme === 'dark') { document.body.classList.add('dark-mode'); btn.innerText = '☀️'; } 
         else if (savedTheme === 'light') { document.body.classList.remove('dark-mode'); btn.innerText = '🌙'; } 
         else { if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) { document.body.classList.add('dark-mode'); btn.innerText = '☀️'; } }
@@ -367,15 +429,23 @@
 
       function toggleTheme() {
         var isDark = document.body.classList.toggle('dark-mode'), btn = document.getElementById('themeBtn');
-        if (isDark) { btn.innerText = '☀️'; localStorage.setItem('mastersTheme', 'dark'); } else { btn.innerText = '🌙'; localStorage.setItem('mastersTheme', 'light'); }
+        if (isDark) { btn.innerText = '☀️'; Store.set('mastersTheme', 'dark'); } else { btn.innerText = '🌙'; Store.set('mastersTheme', 'light'); }
       }
 
       function initPWA() {
         var isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone || document.referrer.includes('android-app://');
         if (isStandalone) return; 
 
-        var pwaDismissed = localStorage.getItem('mastersPwaDismissed');
+        var pwaDismissed = Store.get('mastersPwaDismissed');
         if (pwaDismissed) return;
+
+        // Linkul personal duce fereastra principală la /exec?t=<token>.
+        // Scurtătura salvată pe ecranul principal păstrează tokenul => rămâne conectat.
+        var personal = document.getElementById('pwa-personal-link');
+        if (personal) {
+          if (SESSION.installUrl) { personal.href = SESSION.installUrl; personal.style.display = 'block'; }
+          else { personal.style.display = 'none'; }
+        }
 
         var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
         var isAndroid = /android/i.test(navigator.userAgent);
@@ -396,21 +466,127 @@
       }
 
       function dismissPwaModal() {
-        localStorage.setItem('mastersPwaDismissed', 'true');
+        Store.set('mastersPwaDismissed', 'true');
         closePwaModal();
       }
 
-      window.onload = function() {
-        var savedPhone = localStorage.getItem('mastersSavedPhone');
-        if (savedPhone) { document.getElementById('phoneInput').value = savedPhone; document.getElementById('rememberMe').checked = true; login(); }
-        
-        setTimeout(function() {
-            initPWA();
-            setTimeout(showGdprModal, 1500); 
-        }, 1000);
-      };
+      /* ── Ecranele de stare (skeleton-ul rămâne, dar devine tranziție reală) ── */
+      function showSkeleton() {
+        document.getElementById('loader').style.display = 'block';
+        document.getElementById('syncText').style.display = 'block';
+        document.getElementById('dashboard-view').style.display = 'none';
+        document.getElementById('skeleton-view').style.display = 'block';
+      }
+      function backToLogin() {
+        document.getElementById('skeleton-view').style.display = 'none';
+        document.getElementById('loader').style.display = 'none';
+        document.getElementById('syncText').style.display = 'none';
+        document.getElementById('dashboard-view').style.display = 'none';
+        document.getElementById('login-view').style.display = 'block';
+      }
+      function showLoginError(msg) {
+        var el = document.getElementById('errorMsg');
+        el.innerText = msg; el.style.display = 'block';
+      }
+      function afterAuth() {
+        setTimeout(function () {
+          initPWA();
+          setTimeout(showGdprModal, 1500);
+        }, 800);
+      }
 
-      document.getElementById('marquee-text').innerHTML = SETARI.ANUNT;
+      /* ── Reîmprospătare pe bază de token ── */
+      function hasDashboard() {
+        var c = document.getElementById('athletes-container');
+        return !!(c && c.innerHTML && c.innerHTML.length > 0);
+      }
+      /* Eșec de rețea la reîmprospătare: datele din cache rămân afișate. */
+      function onRefreshFail() {
+        document.getElementById('skeleton-view').style.display = 'none';
+        document.getElementById('loader').style.display = 'none';
+        document.getElementById('syncText').style.display = 'none';
+        if (!hasDashboard()) { backToLogin(); showLoginError('Eroare de conexiune la server. Încercați din nou.'); }
+      }
+
+      function onRefresh(res) {
+        if (!res || res.error) {
+          if (res && res.error === 'SESIUNE_EXPIRATA') {
+            Store.del('mastersToken'); Store.del('mastersCache');
+            SESSION.token = '';
+            backToLogin();
+            showLoginError('Sesiunea a expirat. Autentificați-vă din nou.');
+            return;
+          }
+          // Eroare temporară: dacă avem deja date pe ecran, le păstrăm — nu întrerupem părintele.
+          document.getElementById('skeleton-view').style.display = 'none';
+          document.getElementById('loader').style.display = 'none';
+          document.getElementById('syncText').style.display = 'none';
+          if (!hasDashboard()) { backToLogin(); showLoginError((res && res.error) || 'Conexiune indisponibilă.'); }
+          return;
+        }
+        SESSION.gdprOk = !!res.gdprOk;
+        SESSION.appUrl = res.appUrl || '';
+        SESSION.installUrl = res.installUrl || '';
+        Store.set('mastersCache', JSON.stringify(res.data));
+        renderDashboard(res.data, false);
+        afterAuth();
+      }
+
+      /* ── Restaurarea sesiunii: token din URL (injectat de server) sau din memoria locală ── */
+      function initSession() {
+        if (BOOT && BOOT.token) {
+          SESSION.token = BOOT.token;
+          SESSION.gdprOk = !!BOOT.gdprOk;
+          SESSION.appUrl = BOOT.appUrl || '';
+          SESSION.installUrl = BOOT.installUrl || '';
+          Store.set('mastersToken', BOOT.token);
+          document.getElementById('login-view').style.display = 'none';
+          if (BOOT.data && BOOT.data.length) {
+            // Datele au venit odată cu pagina: zero apeluri, zero așteptare.
+            Store.set('mastersCache', JSON.stringify(BOOT.data));
+            renderDashboard(BOOT.data, false);
+            afterAuth();
+          } else {
+            showSkeleton();
+            google.script.run.withSuccessHandler(onRefresh).withFailureHandler(onRefreshFail).portalRefresh(BOOT.token);
+          }
+          return true;
+        }
+
+        var t = Store.get('mastersToken');
+        if (t) {
+          SESSION.token = t;
+          document.getElementById('login-view').style.display = 'none';
+          var cached = Store.get('mastersCache'), rendered = false;
+          if (cached) {
+            try { renderDashboard(JSON.parse(cached), true); rendered = true; } catch (e) {}
+          }
+          if (!rendered) showSkeleton();
+          google.script.run.withSuccessHandler(onRefresh).withFailureHandler(onRefreshFail).portalRefresh(t);
+          return true;
+        }
+        return false;
+      }
+
+      function boot() {
+        try { document.getElementById('marquee-text').innerHTML = SETARI.ANUNT; } catch (e) {}
+
+        var sp = Store.get('mastersSavedPhone'), sn = Store.get('mastersSavedName');
+        if (sp) document.getElementById('phoneInput').value = sp;
+        if (sn) document.getElementById('prenumeInput').value = sn;
+
+        if (initSession()) return;
+
+        // Fără token, dar cu datele memorate: autentificare automată (ca înainte).
+        if (sp && sn) { login(); return; }
+
+        // Vizitator nou: doar invitația de instalare.
+        // Acordul GDPR se cere DUPĂ autentificare, fiindcă este legat de un părinte anume.
+        setTimeout(initPWA, 1200);
+      }
+
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+      else boot();
 
       function formatPhone(input) {
         var val = input.value.replace(/\D/g, ''), formatted = '';
@@ -422,15 +598,22 @@
       function handleEnter(e) { if (e.keyCode === 13) login(); }
 
       function showGdprModal() {
-        var isCompleted = localStorage.getItem('gdprMastersCompleted');
-        if (!isCompleted && document.getElementById('pwa-modal').style.display !== 'flex') { 
-            var modal = document.getElementById('gdpr-modal'), box = document.getElementById('gdpr-box'); 
-            modal.style.display = 'flex'; setTimeout(function(){ modal.style.opacity = '1'; box.style.transform = 'scale(1)'; }, 100); 
-        }
+        if (!SESSION.token) return;          // se cere doar părinților autentificați
+        if (SESSION.gdprOk) return;          // starea vine de la SERVER, nu din browser
+        var pwa = document.getElementById('pwa-modal');
+        if (pwa && pwa.style.display === 'flex') { setTimeout(showGdprModal, 2500); return; }  // reîncearcă, nu renunță
+        var modal = document.getElementById('gdpr-modal'), box = document.getElementById('gdpr-box');
+        modal.style.display = 'flex';
+        setTimeout(function(){ modal.style.opacity = '1'; box.style.transform = 'scale(1)'; }, 100);
       }
       function closeModal(markCompleted) {
         var modal = document.getElementById('gdpr-modal'), box = document.getElementById('gdpr-box');
-        if (markCompleted) localStorage.setItem('gdprMastersCompleted', 'true');
+        if (markCompleted) {
+          SESSION.gdprOk = true;
+          // Acordul se înregistrează pe server (versiune + dată) => dovadă verificabilă,
+          // și nu se mai pierde niciodată odată cu memoria browserului.
+          if (SESSION.token) { try { google.script.run.portalAcceptGdpr(SESSION.token); } catch (e) {} }
+        }
         modal.style.opacity = '0'; box.style.transform = 'scale(0.8)';
         setTimeout(function(){ modal.style.display = 'none'; }, 400);
       }
@@ -466,38 +649,36 @@
       function toggleAbsence(btn) { var content = btn.nextElementSibling, arrow = btn.querySelector('.arrow'); if (content.style.display === "none") { content.style.display = "block"; arrow.innerText = "▲"; btn.style.borderRadius = "10px 10px 0 0"; btn.style.marginBottom = "0"; } else { content.style.display = "none"; arrow.innerText = "▼"; btn.style.borderRadius = "10px"; btn.style.marginBottom = "5px"; } }
 
       function login() {
-        var phone = document.getElementById('phoneInput').value;
-        if (!phone) return;
-        var remember = document.getElementById('rememberMe').checked;
-        if (remember) localStorage.setItem('mastersSavedPhone', phone); else localStorage.removeItem('mastersSavedPhone');
-        
+        var phone   = document.getElementById('phoneInput').value;
+        var prenume = document.getElementById('prenumeInput').value;
         document.getElementById('errorMsg').style.display = 'none';
-        document.getElementById('login-view').style.display = 'none';
-        
-        var cachedData = localStorage.getItem('mastersCachedData_' + phone);
-        if (cachedData) {
-            renderDashboard(JSON.parse(cachedData), true);
-        } else {
-            document.getElementById('loader').style.display = 'block';
-            document.getElementById('syncText').style.display = 'block';
-            document.getElementById('dashboard-view').style.display = 'none';
-            document.getElementById('skeleton-view').style.display = 'block';
-        }
 
+        if (!phone)   { showLoginError('Introduceți numărul de telefon.'); return; }
+        if (!prenume) { showLoginError('Introduceți prenumele sportivului.'); return; }
+
+        var remember = document.getElementById('rememberMe').checked;
+        if (remember) { Store.set('mastersSavedPhone', phone); Store.set('mastersSavedName', prenume); }
+        else { Store.del('mastersSavedPhone'); Store.del('mastersSavedName'); }
+
+        document.getElementById('login-view').style.display = 'none';
+        showSkeleton();
+
+        // UN SINGUR apel: autentificare + token + date complete.
         google.script.run.withSuccessHandler(function(response) {
-            if (response.error) { 
-                document.getElementById('loader').style.display = 'none';
-                document.getElementById('syncText').style.display = 'none';
-                document.getElementById('skeleton-view').style.display = 'none';
-                document.getElementById('dashboard-view').style.display = 'none';
-                document.getElementById('login-view').style.display = 'block';
-                document.getElementById('errorMsg').innerText = response.error; 
-                document.getElementById('errorMsg').style.display = 'block'; 
-                return; 
+            if (!response || response.error) {
+                backToLogin();
+                showLoginError((response && response.error) || 'Eroare necunoscută.');
+                return;
             }
-            localStorage.setItem('mastersCachedData_' + phone, JSON.stringify(response.data));
+            SESSION.token      = response.token;
+            SESSION.gdprOk     = !!response.gdprOk;
+            SESSION.appUrl     = response.appUrl || '';
+            SESSION.installUrl = response.installUrl || '';
+            if (remember) Store.set('mastersToken', response.token);
+            Store.set('mastersCache', JSON.stringify(response.data));
             renderDashboard(response.data, false);
-        }).withFailureHandler(showError).getAthleteData(phone);
+            afterAuth();
+        }).withFailureHandler(showError).portalLogin(phone, prenume, (navigator.userAgent || ''));
       }
 
       function renderDashboard(dataArray, isCached) {
@@ -520,7 +701,7 @@
               arhiveHtml += '<div class="archive-content" style="display:none; background:#fff; border:1px solid #e0e5eb; border-top:none; border-radius:0 0 10px 10px; padding:15px; margin-top:-5px; margin-bottom: 15px; box-shadow:inset 0 2px 5px rgba(0,0,0,0.02);">';
               
               ath.arhive.forEach(function(arh) {
-                  arhiveHtml += '<div style="font-size:12px; font-weight:900; color:#111; margin: 15px 0 5px 0; border-bottom: 2px solid #f1f3f4; padding-bottom:5px;">' + arh.lunaNume.toUpperCase() + '</div>';
+                  arhiveHtml += '<div style="font-size:12px; font-weight:900; color:#111; margin: 15px 0 5px 0; border-bottom: 2px solid #f1f3f4; padding-bottom:5px;">' + esc(arh.lunaNume).toUpperCase() + '</div>';
                   if (arh.istoric && arh.istoric.length > 0) {
                       arh.istoric.forEach(function(zi) {
                           var dParts = zi.displayDate.split(' ');
@@ -534,13 +715,13 @@
                           arhiveHtml += '</div>';
 
                           arhiveHtml += '<div style="flex: 1; text-align: left;">';
-                          arhiveHtml += '<span class="archive-pill" style="border-color: ' + zi.culoare + '; color: ' + zi.culoare + ';">' + zi.status + '</span>';
+                          arhiveHtml += '<span class="archive-pill" style="border-color: ' + zi.culoare + '; color: ' + zi.culoare + ';">' + esc(zi.status) + '</span>';
                           
                           if (zi.eligibil) {
                               var isNeeligibil = zi.eligibil.indexOf('Neeligibil') > -1;
                               var culEligibil = isNeeligibil ? '#d32f2f' : '#F7941E';
                               var iconEligibil = isNeeligibil ? '❌' : '✅';
-                              arhiveHtml += '<div style="font-size:10px; color:#666; margin-top:6px; font-weight:600; display:flex; align-items:center; gap:4px;"><span>' + iconEligibil + '</span> <span style="color:' + culEligibil + ';">' + zi.eligibil + '</span></div>';
+                              arhiveHtml += '<div style="font-size:10px; color:#666; margin-top:6px; font-weight:600; display:flex; align-items:center; gap:4px;"><span>' + iconEligibil + '</span> <span style="color:' + culEligibil + ';">' + esc(zi.eligibil) + '</span></div>';
                           }
                           arhiveHtml += '</div></div>';
                       });
@@ -552,7 +733,7 @@
               arhiveHtml += '<span>💳 EVIDENȚA PLĂȚILOR</span><span class="arrow">▼</span></button>';
               arhiveHtml += '<div class="archive-content" style="display:none; background:#fff; border:1px solid #e0e5eb; border-top:none; border-radius:0 0 10px 10px; padding:15px; margin-top:-5px; margin-bottom: 15px; box-shadow:inset 0 2px 5px rgba(0,0,0,0.02);">';
               ath.arhive.forEach(function(arh) {
-                  arhiveHtml += '<div style="font-size:12px; font-weight:900; color:#111; margin: 15px 0 5px 0; border-bottom: 2px solid #f1f3f4; padding-bottom:5px;">' + arh.lunaNume.toUpperCase() + '</div>';
+                  arhiveHtml += '<div style="font-size:12px; font-weight:900; color:#111; margin: 15px 0 5px 0; border-bottom: 2px solid #f1f3f4; padding-bottom:5px;">' + esc(arh.lunaNume).toUpperCase() + '</div>';
                   var pInfo = arh.plataInfo;
                   if (pInfo) {
                       if (pInfo.status === 'Achitat') {
@@ -631,13 +812,13 @@
                      var diffD = Math.round((tD - aziD) / (1000 * 60 * 60 * 24));
 
                      if(diffD === 0) {
-                         absenceHtml += '<div style="margin-bottom:8px; padding:10px; background:#f8f9fa; border-radius:8px; font-size:11px; color:#888; border:1px solid #eee;"><strong>' + zi.displayDate + '</strong><br>Nu se poate anunța în aceeași zi.</div>';
+                         absenceHtml += '<div style="margin-bottom:8px; padding:10px; background:#f8f9fa; border-radius:8px; font-size:11px; color:#888; border:1px solid #eee;"><strong>' + esc(zi.displayDate) + '</strong><br>Nu se poate anunța în aceeași zi.</div>';
                      } else if (diffD === 1) {
                          var msg = encodeURIComponent("Salut! " + ath.nume + " nu va putea ajunge la antrenamentul de mâine, " + zi.displayDate + ". Am anunțat sub 24h, neeligibil pentru recuperare.");
-                         absenceHtml += '<a href="https://wa.me/' + telefonWhatsApp + '?text=' + msg + '" target="_blank" style="display:block; margin-bottom:8px; padding:10px; background:#fff3e0; color:#e65100; border:1px solid #ffe0b2; border-radius:8px; font-size:11px; text-decoration:none; font-weight:800;"><strong>' + zi.displayDate + '</strong><br>↳ Anunță pe WA (Sub 24h)</a>';
+                         absenceHtml += '<a href="https://wa.me/' + telefonWhatsApp + '?text=' + msg + '" target="_blank" style="display:block; margin-bottom:8px; padding:10px; background:#fff3e0; color:#e65100; border:1px solid #ffe0b2; border-radius:8px; font-size:11px; text-decoration:none; font-weight:800;"><strong>' + esc(zi.displayDate) + '</strong><br>↳ Anunță pe WA (Sub 24h)</a>';
                      } else {
                          var msg = encodeURIComponent("Salut! " + ath.nume + " nu va putea ajunge la antrenamentul din data de " + zi.displayDate + ". Am anunțat cu peste 24h înainte, eligibil pentru recuperare.");
-                         absenceHtml += '<a href="https://wa.me/' + telefonWhatsApp + '?text=' + msg + '" target="_blank" style="display:block; margin-bottom:8px; padding:10px; background:#e8f5e9; color:#2e7d32; border:1px solid #c8e6c9; border-radius:8px; font-size:11px; text-decoration:none; font-weight:800;"><strong>' + zi.displayDate + '</strong><br>↳ Anunță pe WA (Peste 24h)</a>';
+                         absenceHtml += '<a href="https://wa.me/' + telefonWhatsApp + '?text=' + msg + '" target="_blank" style="display:block; margin-bottom:8px; padding:10px; background:#e8f5e9; color:#2e7d32; border:1px solid #c8e6c9; border-radius:8px; font-size:11px; text-decoration:none; font-weight:800;"><strong>' + esc(zi.displayDate) + '</strong><br>↳ Anunță pe WA (Peste 24h)</a>';
                      }
                   });
               } else {
@@ -648,9 +829,9 @@
 
           if (ath.inactiv) {
               html += '<div class="card" style="border-left-color: #9AA0A6;">';
-              html += '<h3 class="card-title" style="color: #111;">' + ath.nume + '</h3>';
-              html += '<p class="card-subtitle" style="color:#00AEEF;">GRUPA: ' + ath.grupa + '</p>';
-              html += '<p class="card-subtitle">Antrenor: ' + ath.antrenor + ' | Luna: ' + ath.luna + '</p>';
+              html += '<h3 class="card-title" style="color: #111;">' + esc(ath.nume) + '</h3>';
+              html += '<p class="card-subtitle" style="color:#00AEEF;">GRUPA: ' + esc(ath.grupa) + '</p>';
+              html += '<p class="card-subtitle">Antrenor: ' + esc(ath.antrenor) + ' | Luna: ' + esc(ath.luna) + '</p>';
               html += '<div style="background:#f8f9fa; padding: 25px 20px; border-radius: 12px; margin-top: 15px; text-align: center; border: 1px dashed #ccc;">';
               html += '<h2 style="color:#9AA0A6; font-weight:900; margin:0 0 10px 0; font-size:20px; letter-spacing: 2px;">INACTIV</h2>';
               html += '<p style="color:#666; font-size:12px; font-weight:800; margin:0;">Te așteptăm înapoi la cursuri! 🎾</p></div>';
@@ -660,16 +841,16 @@
               if (ath.procent === 100 && ath.prezente >= ath.sedinteTarget && ath.sedinteTarget > 0) {
                   hasChampion = true; html += '<div class="badge-100">🏆 JUCĂTORUL LUNII - 100% PREZENȚĂ!</div>';
               }
-              html += '<h3 class="card-title">' + ath.nume + '</h3>';
-              html += '<p class="card-subtitle" style="color:#00AEEF;">GRUPA: ' + ath.grupa + '</p>';
-              html += '<p class="card-subtitle" style="color:#111;">Antrenor: ' + ath.antrenor + ' <span style="color:#888;">| Luna: ' + ath.luna + '</span></p>';
+              html += '<h3 class="card-title">' + esc(ath.nume) + '</h3>';
+              html += '<p class="card-subtitle" style="color:#00AEEF;">GRUPA: ' + esc(ath.grupa) + '</p>';
+              html += '<p class="card-subtitle" style="color:#111;">Antrenor: ' + esc(ath.antrenor) + ' <span style="color:#888;">| Luna: ' + esc(ath.luna) + '</span></p>';
               
-              if (ath.programFix) { html += '<p class="card-subtitle" style="color: #111;">🕒 PROGRAM FIX: <span style="font-weight:900; color:#00AEEF;">' + ath.programFix + '</span></p>'; } 
-              else if (ath.program) { html += '<p class="card-subtitle" style="color: #666;">🕒 PROGRAM: <span style="color:#111;">' + ath.program + '</span></p>'; } 
+              if (ath.programFix) { html += '<p class="card-subtitle" style="color: #111;">🕒 PROGRAM FIX: <span style="font-weight:900; color:#00AEEF;">' + esc(ath.programFix) + '</span></p>'; } 
+              else if (ath.program) { html += '<p class="card-subtitle" style="color: #666;">🕒 PROGRAM: <span style="color:#111;">' + esc(ath.program) + '</span></p>'; } 
 
               if (ath.infoInterne && ath.infoInterne.trim() !== '') {
                   html += '<div style="background:#fff9e6; color:#111; padding:15px; border-radius:12px; margin-bottom:15px; font-size:13px; font-style:italic; font-weight:600; border: 1px solid #ffe0b2; border-left: 5px solid #F7941E; box-shadow: 0 2px 5px rgba(0,0,0,0.02);">';
-                  html += '<span style="color:#e65100; font-weight:900; display:block; margin-bottom:5px; text-transform:uppercase; font-size:10px; letter-spacing:1px; font-style:normal;">✍️ Feedback Antrenor (' + ath.luna + ')</span>"' + ath.infoInterne + '"</div>';
+                  html += '<span style="color:#e65100; font-weight:900; display:block; margin-bottom:5px; text-transform:uppercase; font-size:10px; letter-spacing:1px; font-style:normal;">✍️ Feedback Antrenor (' + esc(ath.luna) + ')</span>"' + esc(ath.infoInterne) + '"</div>';
               }
 
               var linkCalendarSmart = generateCalendarLink(ath.program, ath.nume);
@@ -707,7 +888,7 @@
               html += absenceHtml;
               
               if (ath.plata === 'Achitat') {
-                  html += '<div style="margin-top:15px; font-size:12px; font-weight:900; padding: 14px; border-radius:10px; text-align:center; background:#e8f5e9; border: 1px solid #c8e6c9; color:#2e7d32; text-transform:uppercase; letter-spacing:1px;">✅ Abonament Achitat (' + ath.luna + ')</div>';
+                  html += '<div style="margin-top:15px; font-size:12px; font-weight:900; padding: 14px; border-radius:10px; text-align:center; background:#e8f5e9; border: 1px solid #c8e6c9; color:#2e7d32; text-transform:uppercase; letter-spacing:1px;">✅ Abonament Achitat (' + esc(ath.luna) + ')</div>';
               } else {
                   html += '<div class="pay-zone">';
                   html += '⚠️ ABONAMENT NEACHITAT';
@@ -717,13 +898,13 @@
                   html += 'Beneficiar: <b style="color:#111;">' + SETARI.TITULAR + '</b><br>CIF: <b style="color:#111;">' + SETARI.CUI + '</b><br>Banca: <b style="color:#111;">' + SETARI.BANCA + '</b><br>IBAN: <b style="color:#c62828;">' + SETARI.IBAN + '</b><br><br>';
                   html += '<div style="background:#fff3e0; padding:10px; border-radius:8px; margin-bottom:10px; border: 1px solid #ffe0b2;">';
                   html += '<span style="color:#F7941E; font-weight:800;">DETALII PLATĂ:</span><br>Vă rugăm să specificați exact textul de mai jos:<br>';
-                  html += '<b style="color:#111;">' + ath.nume + ' – luna ' + ath.luna.toLowerCase() + '</b></div>';
+                  html += '<b style="color:#111;">' + esc(ath.nume) + ' – luna ' + esc(ath.luna).toLowerCase() + '</b></div>';
                   html += '<i style="color:#666;">*După efectuarea plății, vă rugăm să trimiteți dovada antrenorului responsabil.</i>';
                   html += '</div></div>';
               }
 
               var linkGrup = SETARI.LINKURI_GRUPURI[ath.grupa];
-              if (linkGrup) { html += '<a href="' + linkGrup + '" target="_blank" class="btn-wa" style="background:#25D366; color:#fff; border: 1px solid #1EBE5D; margin-top:15px; margin-bottom:10px; box-shadow: 0 4px 10px rgba(37, 211, 102, 0.2);">📲 Intră în Grupul WhatsApp (' + ath.grupa + ')</a>'; }
+              if (linkGrup) { html += '<a href="' + linkGrup + '" target="_blank" class="btn-wa" style="background:#25D366; color:#fff; border: 1px solid #1EBE5D; margin-top:15px; margin-bottom:10px; box-shadow: 0 4px 10px rgba(37, 211, 102, 0.2);">📲 Intră în Grupul WhatsApp (' + esc(ath.grupa) + ')</a>'; }
               html += '<a href="https://wa.me/' + telefonWhatsApp + '" target="_blank" class="btn-wa" style="background:#F7941E; color:#fff; border: 1px solid #E68310; box-shadow: 0 4px 10px rgba(247, 148, 30, 0.2);">💬 Trimite mesaj Antrenorului</a>';
               html += '</div>';
           }
@@ -732,12 +913,23 @@
         document.getElementById('athletes-container').innerHTML = html;
         document.getElementById('dashboard-view').style.display = 'block';
         
-        if (!isCached && hasChampion) { confetti({ particleCount: 200, spread: 100, origin: { y: 0.6 }, colors: ['#00AEEF', '#EC008C', '#F7941E', '#C4D600'], disableForReducedMotion: true }); }
+        if (!isCached && hasChampion && typeof confetti === 'function') { confetti({ particleCount: 200, spread: 100, origin: { y: 0.6 }, colors: ['#00AEEF', '#EC008C', '#F7941E', '#C4D600'], disableForReducedMotion: true }); }
         setTimeout(function(){ var bars = document.querySelectorAll('.progress-bar'); bars.forEach(function(bar){ var w = bar.style.width; bar.style.width = '0%'; setTimeout(function(){ bar.style.width = w; }, 100); }); }, 100);
       }
       
       function showError(err) { document.getElementById('skeleton-view').style.display = 'none'; document.getElementById('loader').style.display = 'none'; document.getElementById('syncText').style.display = 'none'; document.getElementById('login-view').style.display = 'block'; document.getElementById('errorMsg').innerText = 'Eroare de conexiune la server. Încercați din nou.'; document.getElementById('errorMsg').style.display = 'block'; }
-      function logout() { document.getElementById('phoneInput').value = ''; localStorage.removeItem('mastersSavedPhone'); localStorage.removeItem('mastersCachedData_' + document.getElementById('phoneInput').value); document.getElementById('rememberMe').checked = false; document.getElementById('dashboard-view').style.display = 'none'; document.getElementById('login-view').style.display = 'block'; }
+      function logout() {
+        // Deconectare REALĂ: sesiunea se revocă pe server, iar cache-ul local se
+        // șterge efectiv (înainte se ștergea o cheie goală, datele rămâneau în browser).
+        if (SESSION.token) { try { google.script.run.portalLogout(SESSION.token); } catch (e) {} }
+        SESSION.token = ''; SESSION.gdprOk = false; SESSION.installUrl = '';
+        Store.del('mastersToken'); Store.del('mastersCache');
+        Store.del('mastersSavedPhone'); Store.del('mastersSavedName');
+        document.getElementById('phoneInput').value = '';
+        document.getElementById('prenumeInput').value = '';
+        document.getElementById('athletes-container').innerHTML = '';
+        backToLogin();
+      }
     </script>
   </body>
 </html>

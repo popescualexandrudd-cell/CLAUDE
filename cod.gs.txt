@@ -15,7 +15,15 @@ var CFG = {
   EMAIL:   'clubtenismasters@gmail.com',
   WHATSAPP_ON: false, 
   PUBLIC_LINK: 'https://tinyurl.com/portal-prezente-masters',
-  ROWS_PER_GROUP: 40
+  ROWS_PER_GROUP: 40,
+
+  /* ── PORTAL PĂRINȚI: sesiuni, GDPR, cache ── */
+  SESSION_TTL_DAYS:  180,        // cât timp rămâne valabilă o sesiune (se prelungește la fiecare acces)
+  GDPR_VERSION:      '2026.1',   // incrementează pentru a re-cere acordul TUTUROR părinților
+  SNAPSHOT_TTL_SEC:  900,        // 15 min = prospețimea maximă a datelor afișate în portal
+  MAX_ARCHIVE_MONTHS: 8,         // câte luni se încarcă în memoria cache
+  LOGIN_MAX_ATTEMPTS: 10,        // încercări eșuate permise per număr de telefon
+  LOGIN_WINDOW_SEC:   900        // fereastra de rate-limiting (15 min)
 };
 
 var C = { cyan:'#00AEEF', magenta:'#EC008C', orange:'#F7941E', lime:'#C4D600', ink:'#111111', ink2:'#2B2B2B', white:'#FFFFFF', grey:'#F1F3F4', greyDk:'#9AA0A6' };
@@ -47,6 +55,9 @@ var STAT = ['Zile\nFixe', 'Prezențe', 'Absențe', 'Recuperări', 'Vacanță', '
 
 /* ═══════════════════════════ 1. MENIU & SINCRONIZARE ═══════════════════════════ */
 function onOpen() {
+  // Memorăm o dată ID-ul registrului: portalul (rulat ca aplicație web) are astfel
+  // întotdeauna acces la foaia de sesiuni, chiar dacă sincronizarea nu a fost activată.
+  try { props_().setProperty('TARGET_ID', SpreadsheetApp.getActiveSpreadsheet().getId()); } catch (err) {}
   SpreadsheetApp.getUi().createMenu('🎾 MASTERS')
     .addItem('1. Construiește sistemul complet', 'buildAll')
     .addSeparator()
@@ -65,16 +76,61 @@ function onOpen() {
     .addSubMenu(SpreadsheetApp.getUi().createMenu('9. Notificări WhatsApp 💬')
       .addItem('LUNA NOUĂ: Trimite mesaj de salut', 'waSendMonthly')
       .addItem('MEMENTO: Trimite atenționare plată', 'waSendReminder')
+    )
+    .addSeparator()
+    .addSubMenu(SpreadsheetApp.getUi().createMenu('🔐 Portal Părinți')
+      .addItem('🔁 Reconstruiește memoria cache', 'portalRebuildCache')
+      .addItem('🧹 Curăță sesiunile expirate', 'portalCleanSessions')
+      .addItem('🩺 Diagnostic portal', 'portalDiagnostic')
     ).addToUi();
 }
 
 function installLiveSync() { removeSyncs(true); PropertiesService.getDocumentProperties().setProperty('TARGET_ID', SpreadsheetApp.getActiveSpreadsheet().getId()); ScriptApp.newTrigger('liveSyncWorker').forSpreadsheet(CFG.SOURCE_ID).onEdit().create(); SpreadsheetApp.getUi().alert('✅ Sincronizare LIVE Activată!'); }
 function installTimeSync() { removeSyncs(true); PropertiesService.getDocumentProperties().setProperty('TARGET_ID', SpreadsheetApp.getActiveSpreadsheet().getId()); ScriptApp.newTrigger('liveSyncWorker').timeBased().everyMinutes(5).create(); SpreadsheetApp.getUi().alert('✅ Sincronizare la 5 MINUTE Activată!'); }
 function removeSyncs(silent) { var triggers = ScriptApp.getProjectTriggers(); for (var i = 0; i < triggers.length; i++) { if (triggers[i].getHandlerFunction() === 'liveSyncWorker') { ScriptApp.deleteTrigger(triggers[i]); } } if (silent !== true) SpreadsheetApp.getUi().alert('❌ Toate sincronizările automate au fost oprite.'); }
-function liveSyncWorker(e) { try { var targetId = PropertiesService.getDocumentProperties().getProperty('TARGET_ID'); if (!targetId) return; var destSS = SpreadsheetApp.openById(targetId); importDataCore(destSS, true); } catch(err) { console.error(err); } }
+function liveSyncWorker(e) {
+  try {
+    var targetId = PropertiesService.getDocumentProperties().getProperty('TARGET_ID');
+    if (!targetId) return;
+    // OPTIMIZARE COTĂ: dacă registrul brut nu s-a modificat, nu rulăm importul deloc.
+    if (!sourceChanged_()) return;
+    var destSS = SpreadsheetApp.openById(targetId);
+    importDataCore(destSS, true);
+    markSourceSynced_();
+    try { getSnapshot_(true); } catch (w) {}   // pre-încălzim memoria cache pentru părinți
+  } catch(err) { console.error(err); }
+}
+
+/** Returnează true dacă fișierul-mamă a fost modificat de la ultima sincronizare. */
+function sourceChanged_() {
+  try {
+    var t = DriveApp.getFileById(CFG.SOURCE_ID).getLastUpdated().getTime();
+    var prev = Number(props_().getProperty('SRC_MTIME') || 0);
+    return t > prev;
+  } catch (err) { return true; }   // dacă nu putem verifica, ne comportăm ca înainte
+}
+function markSourceSynced_() {
+  try { props_().setProperty('SRC_MTIME', String(DriveApp.getFileById(CFG.SOURCE_ID).getLastUpdated().getTime())); } catch (err) {}
+}
 function triggerManualSync() { importDataCore(SpreadsheetApp.getActiveSpreadsheet(), false); }
 
 function importDataCore(ss, isAuto) {
+  // PROTECȚIE: fără lock, două sincronizări simultane pot lăsa grilele goale
+  // exact în momentul în care un părinte deschide portalul.
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) {
+    if (!isAuto) SpreadsheetApp.getUi().alert('O sincronizare este deja în curs. Reîncearcă peste câteva secunde.');
+    return;
+  }
+  try {
+    importDataCore_(ss, isAuto);
+  } finally {
+    try { invalidateSnapshot_(); } catch (err) {}
+    lock.releaseLock();
+  }
+}
+
+function importDataCore_(ss, isAuto) {
   if (!CFG.SOURCE_ID) { if(!isAuto) SpreadsheetApp.getUi().alert('Lipsește ID-ul fișierului sursă.'); return; }
   var src; try { src = SpreadsheetApp.openById(CFG.SOURCE_ID); } catch (e) { if(!isAuto) SpreadsheetApp.getUi().alert('Eroare acces registrul brut.'); return; }
   
@@ -82,8 +138,7 @@ function importDataCore(ss, isAuto) {
   for (var s=0; s<allSheets.length; s++) { if (allSheets[s].getName().trim().toUpperCase() === targetName) { sheet = allSheets[s]; break; } }
   if (!sheet) { if(!isAuto) SpreadsheetApp.getUi().alert('Eroare: Nu am putut găsi fila "' + CFG.SOURCE_SHEET + '".'); return; }
   
-  var data = sheet.getDataRange().getValues(), backgrounds = sheet.getDataRange().getBackgrounds();
-  var blocks = detectBlocks_(data, backgrounds), imported = 0, marksCount = 0, clearedSheets = {}; 
+  var blocks = parseSourceSheet_(sheet), imported = 0, marksCount = 0, clearedSheets = {}; 
 
   blocks.forEach(function (b) {
     var g = matchGroup_(b.category);
@@ -126,27 +181,34 @@ function importDataCore(ss, isAuto) {
     var dayCols = sh.getRange(LAY.dateRow, LAY.fixedCols + 1, 1, nDays).getValues()[0];
     var strDayCols = dayCols.map(function(v){ return String(v).trim(); });
 
+    // OPTIMIZARE: se construiesc matricele în memorie și se scriu într-un SINGUR apel
+    // (înainte: ~400 apeluri setValue/setBackground individuale per sincronizare).
+    var marksGrid = [], zileFixeGrid = [], bgGrid = [], fgGrid = [];
     b.athletes.forEach(function (a, i) {
-      var rIdx = startRow + i;
-      var searchStartIdx = 0;
-      
+      var rIdx = startRow + i, searchStartIdx = 0;
+      var rowMarks = []; for (var z = 0; z < nDays; z++) rowMarks.push('');
+
       a.marks.forEach(function (mark) {
         var idx = strDayCols.indexOf(String(mark.n).trim(), searchStartIdx);
-        if (idx > -1 && idx < nDays) {
-          sh.getRange(rIdx, LAY.fixedCols + 1 + idx).setValue(mark.code);
-          searchStartIdx = idx + 1;
-          marksCount++;
-        }
+        if (idx > -1 && idx < nDays) { rowMarks[idx] = mark.code; searchStartIdx = idx + 1; marksCount++; }
       });
-      
-      if (a.zileFixe && statCol > 0) sh.getRange(rIdx, statCol).setValue(a.zileFixe);
+      marksGrid.push(rowMarks);
+      zileFixeGrid.push([a.zileFixe || '']);
+
       var hasMarks = a.marks.length > 0;
       var rowOffset = rIdx - LAY.firstData;
       var defaultBg = (rowOffset % 2 !== 0) ? '#FAFBFC' : C.white; 
       var bgName = (a.plata === 'Neachitat' && hasMarks) ? '#FFEBEE' : defaultBg;
       var fgName = (a.plata === 'Neachitat' && hasMarks) ? '#8A1C1C' : C.ink;
-      sh.getRange(rIdx, 3, 1, 2).setBackground(bgName).setFontColor(fgName);
+      bgGrid.push([bgName, bgName]);
+      fgGrid.push([fgName, fgName]);
     });
+
+    if (marksGrid.length) {
+      if (nDays > 0) sh.getRange(startRow, LAY.fixedCols + 1, marksGrid.length, nDays).setValues(marksGrid);
+      if (statCol > 0) sh.getRange(startRow, statCol, zileFixeGrid.length, 1).setValues(zileFixeGrid);
+      sh.getRange(startRow, 3, bgGrid.length, 2).setBackgrounds(bgGrid).setFontColors(fgGrid);
+    }
     imported += rows.length;
   });
   if (!isAuto) { SpreadsheetApp.getUi().alert('Sincronizare Finalizată!\n\nSportivi: ' + imported + '\nPrezențe: ' + marksCount); } else { ss.toast('🔄 Datele au fost actualizate din DB Brută!', 'MASTERS SYNC', 4); }
@@ -299,8 +361,7 @@ function processWhatsAppNotifications(type) {
     for (var s=0; s<allSheets.length; s++) { if (allSheets[s].getName().trim().toUpperCase() === targetName) { sheet = allSheets[s]; break; } }
     if (!sheet) throw new Error("Foaia sursă nu a fost găsită.");
     
-    var data = sheet.getDataRange().getValues(), backgrounds = sheet.getDataRange().getBackgrounds();
-    var blocks = detectBlocks_(data, backgrounds);
+    var blocks = parseSourceSheet_(sheet);
     blocks.forEach(function(b) {
       b.athletes.forEach(function(a) {
         var nume = a.numeComplet, prenume = a.prenume, contact = a.contact, plataStatus = a.plata;
@@ -345,106 +406,170 @@ var PORTAL = {
 };
 var LUNI_RO = ['IANUARIE','FEBRUARIE','MARTIE','APRILIE','MAI','IUNIE','IULIE','AUGUST','SEPTEMBRIE','OCTOMBRIE','NOIEMBRIE','DECEMBRIE'];
 
-function doGet(e) { return HtmlService.createTemplateFromFile('Index').evaluate().setTitle('Portal Părinți - Club Tenis Masters').setFaviconUrl('https://i.postimg.cc/2ythf64H/unnamed-removebg-preview-(1).png').addMetaTag('viewport', 'width=device-width, initial-scale=1').setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL); }
+/**
+ * Punctul de intrare al portalului.
+ * NOU: dacă URL-ul conține ?t=<token> (cazul scurtăturii de pe ecranul principal),
+ * sesiunea este validată pe server ȘI datele sunt injectate direct în pagină.
+ * Rezultat: aplicația se deschide deja autentificată, fără niciun apel suplimentar
+ * și fără să depindă de localStorage (blocat în PWA pe iOS).
+ */
+function doGet(e) {
+  var boot = { token: '', gdprOk: false, gdprVersion: CFG.GDPR_VERSION, appUrl: portalAppUrl_(), installUrl: '', data: null };
+  try {
+    var t = (e && e.parameter && e.parameter.t) ? String(e.parameter.t).trim() : '';
+    if (t) {
+      var sess = sessValidate_(t);
+      if (sess) {
+        boot.token = t;
+        boot.gdprOk = sess.gdprOk;
+        boot.installUrl = boot.appUrl ? (boot.appUrl + '?t=' + encodeURIComponent(t)) : '';
+        var r = getAthleteData(sess.telefon);
+        if (r && r.success) boot.data = r.data;
+      }
+    }
+  } catch (err) { boot.data = null; }
+
+  var tpl = HtmlService.createTemplateFromFile('Index');
+  tpl.BOOT = jsonForHtml_(boot);
+  return tpl.evaluate()
+    .setTitle('Portal Părinți - Club Tenis Masters')
+    .setFaviconUrl('https://i.postimg.cc/2ythf64H/unnamed-removebg-preview-(1).png')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/** Serializare sigură pentru injectare într-un tag <script>. */
+function jsonForHtml_(obj) {
+  return JSON.stringify(obj)
+    .replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
+    .replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+}
 function parseSheetDate_(sheetName) { var parts = String(sheetName).trim().toUpperCase().split('_')[0].split(' '); var l = LUNI_RO.indexOf(parts[0]); var y = parseInt(parts[1], 10); if (l > -1 && y > 2000) return new Date(y, l, 1); return null; }
 
 // LOGICĂ NOUĂ: GĂSEȘTE TOȚI SPORTIVII DE PE ACELAȘI NUMĂR DE TELEFON (PENTRU FRAȚI)
+/**
+ * Construiește istoricul zilnic al unui sportiv pentru o lună dată.
+ * Extras din extractAthletesFromSheet_ ca să fie refolosit și de calea rapidă (cache).
+ * Logica de afișare este IDENTICĂ cu cea anterioară.
+ */
+function buildIstoric_(a, an, lunaIndex, azi) {
+  var istoricZile = [];
+  (a.marks || []).forEach(function(mark) {
+      var code = mark.code, ziNumar = mark.n, monthOffset = mark.mo;
+      var dataAntrenament = new Date(an, lunaIndex + monthOffset, ziNumar, 23, 59, 59);
+      var timestamp = dataAntrenament.getTime();
+      var isFuture = dataAntrenament > azi;
+
+      var displayMonth = LUNI_RO[dataAntrenament.getMonth()];
+      var displayDate = ziNumar + ' ' + displayMonth;
+
+      var statTxt = '', eligibil = '', codCuloare = '#111';
+      if (isFuture) {
+          statTxt = 'Urmează participarea'; codCuloare = '#9AA0A6'; code = 'FUTURE';
+      } else {
+          if (code === 'COLOR_PRESENT') code = 'P';
+          statTxt = PORTAL.STATUS_LABEL[code] || code;
+          if (code === 'P' || code === 'R') codCuloare = '#0B6B2E';
+          else if (code === 'AB') {
+              codCuloare = '#d32f2f';
+              var infoLow = String(a.infoInterne || '').toLowerCase();
+              if (infoLow.indexOf('24h') > -1 || infoLow.indexOf('din timp') > -1) eligibil = 'Eligibil pentru recuperare';
+              else eligibil = 'Neeligibil pentru recuperare (anunțat târziu)';
+          } else if (code === 'E' || code === 'B' || code === 'AC') { eligibil = 'Eligibil pentru recuperare'; codCuloare = '#F7941E'; }
+          else if (code === 'PL') { codCuloare = '#0C5A66'; }
+      }
+      istoricZile.push({ displayDate: displayDate, dataZilnica: ziNumar, timestamp: timestamp, status: statTxt, cod: code, eligibil: eligibil, culoare: codCuloare });
+  });
+  return istoricZile;
+}
+
+/**
+ * Citire directă din foaia brută (păstrată pentru compatibilitate).
+ * SECURITATE: potrivirea numărului de telefon este acum STRICTĂ (ultimele 9 cifre),
+ * nu substring în ambele sensuri — care putea returna copiii altor familii.
+ */
 function extractAthletesFromSheet_(sheet, cleanPhone, sDate, azi) {
-  var data = sheet.getDataRange().getValues(), backgrounds = sheet.getDataRange().getBackgrounds();
-  var blocks = detectBlocks_(data, backgrounds);
+  var blocks = parseSourceSheet_(sheet);
   var an = sDate.getFullYear(), lunaIndex = sDate.getMonth();
+  var ph = normPhone_(cleanPhone);
   var foundAthletes = [];
-  
-  for (var i=0; i<blocks.length; i++) {
-      for (var j=0; j<blocks[i].athletes.length; j++) {
+
+  for (var i = 0; i < blocks.length; i++) {
+      for (var j = 0; j < blocks[i].athletes.length; j++) {
           var a = blocks[i].athletes[j];
-          var aPhone = String(a.contact).replace(/\s+/g, '').replace(/^0/, '').trim();
-          if (aPhone && (aPhone.indexOf(cleanPhone) > -1 || cleanPhone.indexOf(aPhone) > -1)) {
-              var istoricZile = [];
-              
-              a.marks.forEach(function(mark) {
-                  var code = mark.code, ziNumar = mark.n, monthOffset = mark.mo;
-                  var dataAntrenament = new Date(an, lunaIndex + monthOffset, ziNumar, 23, 59, 59);
-                  var timestamp = dataAntrenament.getTime();
-                  var isFuture = dataAntrenament > azi;
-                  
-                  var displayMonth = LUNI_RO[dataAntrenament.getMonth()]; 
-                  var displayDate = ziNumar + ' ' + displayMonth;
-                  
-                  var statTxt = '', eligibil = '', codCuloare = '#111';
-                  if (isFuture) {
-                      statTxt = 'Urmează participarea'; codCuloare = '#9AA0A6'; code = 'FUTURE';
-                  } else {
-                      if (code === 'COLOR_PRESENT') code = 'P'; 
-                      statTxt = PORTAL.STATUS_LABEL[code] || code;
-                      if (code === 'P' || code === 'R') codCuloare = '#0B6B2E';
-                      else if (code === 'AB') {
-                          codCuloare = '#d32f2f';
-                          var infoLow = String(a.infoInterne || '').toLowerCase();
-                          if (infoLow.indexOf('24h') > -1 || infoLow.indexOf('din timp') > -1) eligibil = 'Eligibil pentru recuperare';
-                          else eligibil = 'Neeligibil pentru recuperare (anunțat târziu)';
-                      } else if (code === 'E' || code === 'B' || code === 'AC') { eligibil = 'Eligibil pentru recuperare'; codCuloare = '#F7941E'; } 
-                      else if (code === 'PL') { codCuloare = '#0C5A66'; }
-                  }
-                  istoricZile.push({ displayDate: displayDate, dataZilnica: ziNumar, timestamp: timestamp, status: statTxt, cod: code, eligibil: eligibil, culoare: codCuloare });
-              });
-              foundAthletes.push({ athleteObj: a, groupObj: matchGroup_(blocks[i].category) || { cat: blocks[i].category, time: '' }, istoric: istoricZile });
-          }
+          if (!phoneMatchList_(ph, phoneListFromCell_(a.contact))) continue;
+          foundAthletes.push({
+              athleteObj: a,
+              groupObj: matchGroup_(blocks[i].category) || { cat: blocks[i].category, time: '' },
+              istoric: buildIstoric_(a, an, lunaIndex, azi)
+          });
       }
   }
   return foundAthletes;
 }
 
+/**
+ * API public (semnătură NESCHIMBATĂ).
+ * Înainte: recitea TOATE foile lunare (valori + fundaluri) la fiecare login => 5-20 s.
+ * Acum: citește din snapshot-ul comprimat din CacheService => sub 1 s.
+ */
 function getAthleteData(phone) {
-  var cleanPhone = String(phone).replace(/\s+/g, '').replace(/^0/, '').trim();
-  if (!cleanPhone || cleanPhone.length < 8) return { error: 'Introduceți un număr valid (minim 9 cifre).' };
-  var src; try { src = SpreadsheetApp.openById(CFG.SOURCE_ID); } catch(e) { return { error: 'Baza de date se actualizează.' }; }
-  
-  var allSheets = src.getSheets(), currentSheetNameTrimmed = CFG.SOURCE_SHEET.trim();
-  var currentSheetDate = parseSheetDate_(currentSheetNameTrimmed) || new Date();
-  var azi = new Date(), allFound = {}; 
-  
-  allSheets.forEach(function(sheet) {
-      var shName = sheet.getName().trim();
-      if (shName.indexOf('_PREZENTA') === -1) return;
-      var sDate = parseSheetDate_(shName);
-      if (!sDate || sDate > currentSheetDate) return; 
-      
-      var exts = extractAthletesFromSheet_(sheet, cleanPhone, sDate, azi);
-      exts.forEach(function(ext) {
-          var numeId = ext.athleteObj.numeComplet;
-          if (!allFound[numeId]) allFound[numeId] = { archiveList: [], mainData: null };
-          
-          ext.istoric.sort(function(a, b) { return a.timestamp - b.timestamp; });
-          var lunaDisplay = shName.replace('_PREZENTA', '').trim();
-          
-          allFound[numeId].archiveList.push({ 
-             dateObj: sDate, rawExt: ext, 
-             obj: { 
-                 lunaNume: lunaDisplay, istoric: ext.istoric,
-                 plataInfo: { status: ext.athleteObj.plata, data: ext.athleteObj.dataPlata, metoda: ext.athleteObj.metodaPlata, tarif: ext.athleteObj.tarif }
-             } 
-          });
-          if (shName === currentSheetNameTrimmed) { allFound[numeId].mainData = ext; allFound[numeId].mainData.lunaSursa = lunaDisplay; }
+  var ph = normPhone_(phone);
+  if (!ph) return { error: 'Introduceți un număr valid (minim 9 cifre).' };
+
+  var snap = null;
+  try { snap = getSnapshot_(false); } catch (err) { return { error: 'Baza de date se actualizează.' }; }
+  if (!snap) return { error: 'Baza de date se actualizează.' };
+
+  return composeAthleteData_(snap, ph, new Date());
+}
+
+/** Compune răspunsul pentru portal din snapshot. Formatul returnat este identic cu cel anterior. */
+function composeAthleteData_(snap, ph, azi) {
+  var allFound = {}, curName = snap.curSheet;
+
+  snap.months.forEach(function(mo) {
+    mo.ath.forEach(function(a) {
+      if (!phoneMatchList_(ph, a.ph)) return;
+
+      var ext = {
+        athleteObj: a,
+        groupObj: matchGroup_(a.cat) || { cat: a.cat, time: '' },
+        istoric: buildIstoric_(a, mo.y, mo.m, azi)
+      };
+      ext.istoric.sort(function(x, y) { return x.timestamp - y.timestamp; });
+
+      var numeId = a.numeComplet;
+      if (!allFound[numeId]) allFound[numeId] = { archiveList: [], mainData: null };
+
+      var lunaDisplay = String(mo.name).replace('_PREZENTA', '').trim();
+      allFound[numeId].archiveList.push({
+         dateObj: new Date(mo.y, mo.m, 1), rawExt: ext,
+         obj: {
+             lunaNume: lunaDisplay, istoric: ext.istoric,
+             plataInfo: { status: a.plata, data: a.dataPlata, metoda: a.metodaPlata, tarif: a.tarif }
+         }
       });
+      if (mo.name === curName) { allFound[numeId].mainData = ext; allFound[numeId].mainData.lunaSursa = lunaDisplay; }
+    });
   });
-  
+
   var results = [];
   Object.keys(allFound).forEach(function(numeId) {
       var athData = allFound[numeId];
       athData.archiveList.sort(function(a, b) { return b.dateObj - a.dateObj; });
-      
+
       var esteInactivLunaCurenta = false;
       if (!athData.mainData || (athData.mainData.istoric && athData.mainData.istoric.length === 0)) { esteInactivLunaCurenta = true; }
-      
+
       if (!athData.mainData && athData.archiveList.length > 0) { athData.mainData = athData.archiveList[0].rawExt || {athleteObj: {}, groupObj: {}}; athData.mainData.lunaSursa = athData.archiveList[0].obj.lunaNume; }
-      
+
       if (athData.mainData) {
           var arhiveFinale = athData.archiveList.map(function(item) { return item.obj; }).slice(0, 4);
           var a = athData.mainData.athleteObj, g = athData.mainData.groupObj;
           var prez = 0, abs = 0, rec = 0;
           (athData.mainData.istoric || []).forEach(function(zi) { if (zi.cod === 'P') prez++; if (zi.cod === 'AB') abs++; if (zi.cod === 'R') rec++; });
-          
+
           var baseProgramStr = ''; if (g && g.cat) baseProgramStr = 'L-V | ' + (g.time || '');
           var finalProgram = baseProgramStr;
           if (a.zileFixe && String(a.zileFixe).trim() !== '') {
@@ -454,25 +579,443 @@ function getAthleteData(phone) {
           var sedinteTarget = (a.perWeek || 1) * 4, sedinteEfectuate = prez + rec;
           var procentProgramFix = Math.min(100, Math.round((sedinteEfectuate / (sedinteTarget || 1)) * 100));
           var total = prez + abs; var procent = total > 0 ? Math.round((prez / total) * 100) : 0;
-          
+
           results.push({
-              nume: a.numeComplet || '', 
+              nume: a.numeComplet || '',
               grupa: g.cat || '', antrenor: a.coach || '', program: finalProgram,
               prezente: prez, absente: abs, recuperari: rec, procent: procent, plata: a.plata || '',
-              inactiv: esteInactivLunaCurenta, luna: athData.mainData.lunaSursa, arhive: arhiveFinale, 
+              inactiv: esteInactivLunaCurenta, luna: athData.mainData.lunaSursa, arhive: arhiveFinale,
               sedinteTarget: sedinteTarget, programFix: programFixLabel_(a, g), sedinteEfectuate: sedinteEfectuate, procentProgramFix: procentProgramFix,
               infoInterne: a.infoInterne || '',
-              istoricCurent: athData.mainData.istoric || [] // ADAUGAT PENTRU LOGICA DE ABSENTE
+              istoricCurent: athData.mainData.istoric || []
           });
       }
   });
-  
+
   if (results.length === 0) return { error: 'Numărul nu a fost găsit în baza de date.' };
-  results.sort(function(a, b) { return a.nume.localeCompare(b.nume); }); // Afisare ordonata alfabetic
+  results.sort(function(a, b) { return a.nume.localeCompare(b.nume); });
   return { success: true, data: results };
 }
-
 function pad2_(n) { n = String(n); return n.length < 2 ? '0' + n : n; }
 function extractOra_(txt, fallback) { var m = String(txt || '').match(/(\d{1,2})[.:h](\d{2})\s*[-–]\s*(\d{1,2})[.:h](\d{2})/); if (!m) return fallback || ''; return pad2_(m[1]) + ':' + m[2] + '-' + pad2_(m[3]) + ':' + m[4]; }
 function formatZileFixe_(txt) { var s = String(txt || '').toUpperCase().replace(/(\d{1,2})[.:h](\d{2})\s*[-–]\s*(\d{1,2})[.:h](\d{2})/g, '').trim(); if (!s) return ''; var map = { 'LUNI':'Luni','MARTI':'Marți','MARȚI':'Marți','MIERCURI':'Miercuri','JOI':'Joi','VINERI':'Vineri','SAMBATA':'Sâmbătă','SÂMBĂTĂ':'Sâmbătă','L':'Luni','MA':'Marți','MI':'Miercuri','J':'Joi','V':'Vineri' }; var out = []; s.split(/[\/,\-–|+]+/).forEach(function(p) { p = p.trim(); if (map[p] && out.indexOf(map[p]) === -1) out.push(map[p]); }); return out.join(', '); }
 function programFixLabel_(a, g) { var zile = formatZileFixe_(a.zileFixe); var ora  = extractOra_(a.zileFixe, '') || (g ? g.time : ''); if (!zile && !ora) return ''; return (zile || 'Program club') + (ora ? ' ' + ora : ''); }
+/* ═══════════════════════════ 6. INFRASTRUCTURĂ PORTAL ═══════════════════════════ */
+/*  Sesiuni persistente, consimțământ GDPR pe server, memorie cache comprimată,
+ *  normalizări sigure pentru telefon și nume. Nimic din logica existentă nu a fost
+ *  eliminat — aceste funcții doar o fac rapidă și sigură.                          */
+
+/* ─────────── 6.1 Proprietăți & utilitare de bază ─────────── */
+
+function props_() {
+  try { var p = PropertiesService.getDocumentProperties(); if (p) return p; } catch (err) {}
+  return PropertiesService.getScriptProperties();
+}
+
+function portalSS_() {
+  try {
+    var act = SpreadsheetApp.getActiveSpreadsheet();
+    if (act) { try { props_().setProperty('TARGET_ID', act.getId()); } catch (e2) {} return act; }
+  } catch (err) {}
+  var id = props_().getProperty('TARGET_ID');
+  if (id) return SpreadsheetApp.openById(id);
+  throw new Error('Registrul portalului nu este configurat. Deschide o dată spreadsheet-ul MASTERS pentru inițializare.');
+}
+
+function portalAppUrl_() {
+  try { return ScriptApp.getService().getUrl() || ''; } catch (err) { return ''; }
+}
+
+function sha256Hex_(txt) {
+  var raw = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(txt), Utilities.Charset.UTF_8);
+  var out = '';
+  for (var i = 0; i < raw.length; i++) { var b = (raw[i] + 256) % 256; out += (b < 16 ? '0' : '') + b.toString(16); }
+  return out;
+}
+
+/** Token opac de 256 biți. Se stochează DOAR hash-uit, niciodată în clar. */
+function newToken_() { return (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, ''); }
+
+/* ─────────── 6.2 Normalizare telefon & nume ─────────── */
+
+/** Reduce orice format (0723 028 164 / +40723.028.164 / 0040723028164) la ultimele 9 cifre. */
+function normPhone_(raw) {
+  var d = String(raw == null ? '' : raw).replace(/\D/g, '');
+  if (d.length < 9) return '';
+  return d.substring(d.length - 9);
+}
+
+/** O celulă „CONTACT” poate conține mai multe numere („0723... / 0744...”). Le extrage pe toate. */
+function phoneListFromCell_(cell) {
+  var txt = String(cell == null ? '' : cell), out = [];
+  var runs = txt.match(/\d[\d\s.\-()]{7,}\d/g) || [];
+  for (var i = 0; i < runs.length; i++) {
+    var n = normPhone_(runs[i]);
+    if (n && out.indexOf(n) === -1) out.push(n);
+  }
+  if (!out.length) { var all = normPhone_(txt); if (all) out.push(all); }
+  return out;
+}
+
+/** Potrivire STRICTĂ (egalitate pe ultimele 9 cifre), nu substring. */
+function phoneMatchList_(phNorm, list) {
+  if (!phNorm || !list || !list.length) return false;
+  return list.indexOf(phNorm) > -1;
+}
+
+function stripDia_(txt) {
+  return String(txt == null ? '' : txt)
+    .replace(/[ăâĂÂ]/g, 'A').replace(/[îÎ]/g, 'I')
+    .replace(/[șşȘŞ]/g, 'S').replace(/[țţȚŢ]/g, 'T')
+    .toUpperCase();
+}
+function normName_(txt) { return stripDia_(txt).replace(/[^A-Z ]/g, ' ').replace(/\s+/g, ' ').trim(); }
+
+/** Al doilea factor: prenumele introdus trebuie să apară în numele complet al unui sportiv. */
+function nameMatches_(input, numeComplet) {
+  var want = normName_(input); if (!want) return false;
+  var have = normName_(numeComplet); if (!have) return false;
+  var haveToks = have.split(' '), wantToks = want.split(' ');
+  for (var i = 0; i < wantToks.length; i++) {
+    if (wantToks[i].length < 2) continue;
+    if (haveToks.indexOf(wantToks[i]) > -1) return true;
+  }
+  return false;
+}
+
+/* ─────────── 6.3 Memorie cache (gzip + fragmentare) ─────────── */
+/*  CacheService permite max. 100 KB per cheie. Snapshot-ul complet este comprimat
+ *  cu gzip (reducere tipică 5-10×) și, dacă mai e nevoie, spart în fragmente.      */
+
+var CACHE_CHUNK_ = 90000;
+
+function cachePutObj_(key, obj, ttlSec) {
+  try {
+    var c = CacheService.getScriptCache();
+    var b64 = Utilities.base64Encode(Utilities.gzip(Utilities.newBlob(JSON.stringify(obj), 'application/json')).getBytes());
+    var map = {}, n = 0;
+    for (var i = 0; i < b64.length; i += CACHE_CHUNK_) { map[key + '__' + n] = b64.substring(i, i + CACHE_CHUNK_); n++; }
+    map[key + '__n'] = String(n);
+    c.putAll(map, ttlSec || 600);
+    return true;
+  } catch (err) { return false; }
+}
+
+function cacheGetObj_(key) {
+  try {
+    var c = CacheService.getScriptCache();
+    var n = Number(c.get(key + '__n') || 0);
+    if (!n) return null;
+    var keys = [], i;
+    for (i = 0; i < n; i++) keys.push(key + '__' + i);
+    var got = c.getAll(keys), b64 = '';
+    for (i = 0; i < n; i++) { var part = got[key + '__' + i]; if (part == null) return null; b64 += part; }
+    var blob = Utilities.newBlob(Utilities.base64Decode(b64), 'application/x-gzip', 'c.gz');
+    return JSON.parse(Utilities.ungzip(blob).getDataAsString());
+  } catch (err) { return null; }
+}
+
+function cacheDrop_(key) {
+  try {
+    var c = CacheService.getScriptCache();
+    var n = Number(c.get(key + '__n') || 0), keys = [key + '__n'];
+    for (var i = 0; i < n; i++) keys.push(key + '__' + i);
+    c.removeAll(keys);
+  } catch (err) {}
+}
+
+/* ─────────── 6.4 Snapshot al registrului brut ─────────── */
+
+function snapVersion_() {
+  var p = props_(), v = p.getProperty('SNAP_VER');
+  if (!v) { v = '1'; p.setProperty('SNAP_VER', v); }
+  return v;
+}
+function invalidateSnapshot_() {
+  var p = props_();
+  p.setProperty('SNAP_VER', String(Number(p.getProperty('SNAP_VER') || 1) + 1));
+}
+function snapKey_() { return 'SNAP_v' + snapVersion_(); }
+
+function getSnapshot_(forceRebuild) {
+  var key = snapKey_();
+  if (!forceRebuild) { var cached = cacheGetObj_(key); if (cached) return cached; }
+  var snap = buildSnapshot_();
+  if (snap) cachePutObj_(key, snap, CFG.SNAPSHOT_TTL_SEC);
+  return snap;
+}
+
+/**
+ * Citește o foaie din registrul brut.
+ * OPTIMIZARE: fundalurile (apelul cel mai lent din API-ul Sheets) se citesc doar
+ * pentru primele 50 de coloane — singurele scanate de readDayHeader_.
+ */
+function parseSourceSheet_(sheet) {
+  var lastRow = sheet.getLastRow(), lastCol = sheet.getLastColumn();
+  if (lastRow < 1 || lastCol < 1) return [];
+  var data = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+  var bg = sheet.getRange(1, 1, lastRow, Math.min(50, lastCol)).getBackgrounds();
+  return detectBlocks_(data, bg);
+}
+
+function buildSnapshot_() {
+  var src = SpreadsheetApp.openById(CFG.SOURCE_ID);
+  var curName = CFG.SOURCE_SHEET.trim();
+  var curDate = parseSheetDate_(curName) || new Date();
+
+  var cand = [];
+  src.getSheets().forEach(function (sheet) {
+    var shName = sheet.getName().trim();
+    if (shName.indexOf('_PREZENTA') === -1) return;
+    var sDate = parseSheetDate_(shName);
+    if (!sDate || sDate > curDate) return;
+    cand.push({ sheet: sheet, name: shName, date: sDate });
+  });
+  cand.sort(function (a, b) { return b.date - a.date; });
+  cand = cand.slice(0, CFG.MAX_ARCHIVE_MONTHS);
+
+  var months = [];
+  cand.forEach(function (item) {
+    var ath = [];
+    parseSourceSheet_(item.sheet).forEach(function (b) {
+      b.athletes.forEach(function (a) {
+        ath.push({
+          cat: b.category, coach: a.coach, numeComplet: a.numeComplet, numeInitiala: a.numeInitiala,
+          prenume: a.prenume, perWeek: a.perWeek, marks: a.marks, zileFixe: a.zileFixe,
+          plata: a.plata, tarif: a.tarif, dataPlata: a.dataPlata, metodaPlata: a.metodaPlata,
+          infoInterne: a.infoInterne, ph: phoneListFromCell_(a.contact)
+        });
+      });
+    });
+    months.push({ name: item.name, y: item.date.getFullYear(), m: item.date.getMonth(), ath: ath });
+  });
+
+  return { v: 1, builtAt: Date.now(), curSheet: curName, months: months };
+}
+
+/* ─────────── 6.5 Registrul de sesiuni ─────────── */
+
+var SESS_ = {
+  SHEET: '_SESIUNI',
+  HDR: ['tokenHash', 'telefon', 'prenume', 'creatLa', 'ultimaAccesare', 'expiraLa', 'device', 'activ', 'gdprVersiune', 'gdprLa']
+};
+
+function sessSheet_() {
+  var ss = portalSS_(), sh = ss.getSheetByName(SESS_.SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(SESS_.SHEET);
+    sh.getRange(1, 1, 1, SESS_.HDR.length).setValues([SESS_.HDR])
+      .setFontWeight('bold').setBackground(C.ink).setFontColor(C.white);
+    sh.setFrozenRows(1);
+    try { sh.hideSheet(); } catch (err) {}
+  }
+  return sh;
+}
+
+function sessFindRow_(hash) {
+  var sh = sessSheet_(), last = sh.getLastRow();
+  if (last < 2) return null;
+  var vals = sh.getRange(2, 1, last - 1, SESS_.HDR.length).getValues();
+  for (var i = vals.length - 1; i >= 0; i--) {
+    if (String(vals[i][0]) === hash) return { row: i + 2, v: vals[i] };
+  }
+  return null;
+}
+
+function sessCreate_(phoneNorm, prenume, device) {
+  var token = newToken_(), hash = sha256Hex_(token), now = new Date();
+  var exp = new Date(now.getTime() + CFG.SESSION_TTL_DAYS * 86400000);
+  sessSheet_().appendRow([hash, phoneNorm, String(prenume || ''), now, now, exp, String(device || '').substring(0, 120), true, '', '']);
+  cachePutObj_('SESS_' + hash, { telefon: phoneNorm, prenume: String(prenume || ''), gdprOk: false, exp: exp.getTime() }, 21600);
+  return token;
+}
+
+function sessValidate_(token) {
+  if (!token) return null;
+  var hash = sha256Hex_(token), ck = 'SESS_' + hash;
+
+  var hit = cacheGetObj_(ck);
+  if (hit) { if (hit.exp && Date.now() > hit.exp) { cacheDrop_(ck); return null; } return hit; }
+
+  var found = sessFindRow_(hash);
+  if (!found) return null;
+  var v = found.v;
+
+  var activ = (v[7] === true || String(v[7]).toUpperCase() === 'TRUE');
+  if (!activ) return null;
+
+  var exp = (v[5] instanceof Date) ? v[5].getTime() : Number(v[5] || 0);
+  if (exp && Date.now() > exp) return null;
+
+  var sess = {
+    telefon: normPhone_(v[1]),
+    prenume: String(v[2] || ''),
+    gdprOk: (String(v[8] || '') === String(CFG.GDPR_VERSION)),
+    exp: exp
+  };
+  cachePutObj_(ck, sess, 21600);
+
+  // Prelungire silențioasă a sesiunii — se scrie cel mult o dată la 24h.
+  try {
+    var la = (v[4] instanceof Date) ? v[4].getTime() : 0;
+    if (Date.now() - la > 86400000) {
+      var sh = sessSheet_(), now = new Date();
+      sh.getRange(found.row, 5, 1, 2).setValues([[now, new Date(now.getTime() + CFG.SESSION_TTL_DAYS * 86400000)]]);
+    }
+  } catch (err) {}
+
+  return sess;
+}
+
+function sessSetGdpr_(token) {
+  if (!token) return false;
+  var hash = sha256Hex_(token), found = sessFindRow_(hash);
+  if (!found) return false;
+  sessSheet_().getRange(found.row, 9, 1, 2).setValues([[CFG.GDPR_VERSION, new Date()]]);
+  cacheDrop_('SESS_' + hash);
+  return true;
+}
+
+function sessRevoke_(token) {
+  if (!token) return false;
+  var hash = sha256Hex_(token), found = sessFindRow_(hash);
+  if (!found) return false;
+  sessSheet_().getRange(found.row, 8).setValue(false);
+  cacheDrop_('SESS_' + hash);
+  return true;
+}
+
+/* ─────────── 6.6 Rate limiting ─────────── */
+
+function rateBlocked_(bucket) {
+  try { return Number(CacheService.getScriptCache().get('RL_' + bucket) || 0) >= CFG.LOGIN_MAX_ATTEMPTS; }
+  catch (err) { return false; }
+}
+function rateHit_(bucket) {
+  try {
+    var c = CacheService.getScriptCache(), k = 'RL_' + bucket;
+    c.put(k, String(Number(c.get(k) || 0) + 1), CFG.LOGIN_WINDOW_SEC);
+  } catch (err) {}
+}
+function rateClear_(bucket) { try { CacheService.getScriptCache().remove('RL_' + bucket); } catch (err) {} }
+
+/* ─────────── 6.7 API public al portalului ─────────── */
+
+/**
+ * Autentificare: număr de telefon + prenumele sportivului (al doilea factor).
+ * Returnează un token de sesiune persistent și datele complete, într-un SINGUR apel.
+ */
+function portalLogin(phone, prenume, device) {
+  var ph = normPhone_(phone);
+  if (!ph) return { error: 'Introduceți un număr de telefon valid.' };
+  if (!String(prenume || '').trim()) return { error: 'Introduceți prenumele sportivului.' };
+  if (rateBlocked_(ph)) return { error: 'Prea multe încercări eșuate. Reîncercați peste 15 minute.' };
+
+  var snap = null;
+  try { snap = getSnapshot_(false); } catch (err) { return { error: 'Baza de date se actualizează. Reîncercați în câteva momente.' }; }
+  if (!snap) return { error: 'Baza de date se actualizează. Reîncercați în câteva momente.' };
+
+  var nume = {}, gasitTelefon = false;
+  snap.months.forEach(function (mo) {
+    mo.ath.forEach(function (a) {
+      if (phoneMatchList_(ph, a.ph)) { gasitTelefon = true; nume[a.numeComplet] = true; }
+    });
+  });
+
+  if (!gasitTelefon) { rateHit_(ph); return { error: 'Numărul nu a fost găsit în baza de date.' }; }
+
+  var potrivit = false;
+  Object.keys(nume).forEach(function (n) { if (nameMatches_(prenume, n)) potrivit = true; });
+  if (!potrivit) { rateHit_(ph); return { error: 'Prenumele sportivului nu corespunde acestui număr de telefon.' }; }
+
+  rateClear_(ph);
+  var token = sessCreate_(ph, String(prenume).trim(), device);
+  var res = composeAthleteData_(snap, ph, new Date());
+  var appUrl = portalAppUrl_();
+
+  return {
+    success: true,
+    token: token,
+    appUrl: appUrl,
+    installUrl: appUrl ? (appUrl + '?t=' + encodeURIComponent(token)) : '',
+    gdprOk: false,
+    gdprVersion: CFG.GDPR_VERSION,
+    data: (res && res.success) ? res.data : []
+  };
+}
+
+/** Reîmprospătare pe bază de token (fără re-autentificare). */
+function portalRefresh(token) {
+  var sess = sessValidate_(token);
+  if (!sess) return { error: 'SESIUNE_EXPIRATA' };
+
+  var res = getAthleteData(sess.telefon);
+  if (!res || res.error) return { error: (res && res.error) || 'Eroare necunoscută.' };
+
+  var appUrl = portalAppUrl_();
+  return {
+    success: true,
+    gdprOk: sess.gdprOk,
+    gdprVersion: CFG.GDPR_VERSION,
+    appUrl: appUrl,
+    installUrl: appUrl ? (appUrl + '?t=' + encodeURIComponent(token)) : '',
+    data: res.data
+  };
+}
+
+/** Consimțământul GDPR devine stare de SERVER, cu versiune și dată — dovadă verificabilă. */
+function portalAcceptGdpr(token) { return { success: sessSetGdpr_(token) }; }
+
+/** Deconectare reală: sesiunea este revocată pe server, nu doar uitată în browser. */
+function portalLogout(token) { return { success: sessRevoke_(token) }; }
+
+/* ─────────── 6.8 Mentenanță (meniu) ─────────── */
+
+function portalRebuildCache() {
+  var ui = SpreadsheetApp.getUi();
+  invalidateSnapshot_();
+  var t0 = Date.now();
+  var snap = getSnapshot_(true);
+  if (!snap) { ui.alert('Nu am putut citi registrul brut.'); return; }
+  var total = 0;
+  snap.months.forEach(function (m) { total += m.ath.length; });
+  ui.alert('✅ Memoria cache a fost reconstruită.\n\nLuni încărcate: ' + snap.months.length +
+           '\nÎnregistrări sportivi: ' + total + '\nDurată: ' + ((Date.now() - t0) / 1000).toFixed(1) + ' s');
+}
+
+function portalCleanSessions() {
+  var ui = SpreadsheetApp.getUi(), sh = sessSheet_(), last = sh.getLastRow();
+  if (last < 2) { ui.alert('Nu există sesiuni înregistrate.'); return; }
+  var vals = sh.getRange(2, 1, last - 1, SESS_.HDR.length).getValues(), now = Date.now(), sterse = 0;
+  for (var i = vals.length - 1; i >= 0; i--) {
+    var exp = (vals[i][5] instanceof Date) ? vals[i][5].getTime() : Number(vals[i][5] || 0);
+    var activ = (vals[i][7] === true || String(vals[i][7]).toUpperCase() === 'TRUE');
+    if ((exp && now > exp) || !activ) { sh.deleteRow(i + 2); sterse++; }
+  }
+  ui.alert('🧹 Sesiuni eliminate: ' + sterse + '\nSesiuni active rămase: ' + Math.max(0, sh.getLastRow() - 1));
+}
+
+function portalDiagnostic() {
+  var ui = SpreadsheetApp.getUi(), out = [];
+  out.push('URL aplicație: ' + (portalAppUrl_() || '(nepublicată încă)'));
+  try {
+    var f = DriveApp.getFileById(CFG.SOURCE_ID);
+    out.push('Registru brut: ' + f.getName() + '  (modificat: ' + f.getLastUpdated().toLocaleString() + ')');
+  } catch (err) { out.push('Registru brut: EROARE DE ACCES — ' + err.message); }
+
+  var t0 = Date.now(), snap = null;
+  try { snap = getSnapshot_(false); } catch (err) { out.push('Snapshot: EROARE — ' + err.message); }
+  if (snap) {
+    var total = 0; snap.months.forEach(function (m) { total += m.ath.length; });
+    out.push('Snapshot: ' + snap.months.length + ' luni / ' + total + ' înregistrări, citit în ' + ((Date.now() - t0) / 1000).toFixed(2) + ' s');
+    out.push('Luna curentă: ' + snap.curSheet);
+  }
+  var sh = sessSheet_();
+  out.push('Sesiuni înregistrate: ' + Math.max(0, sh.getLastRow() - 1));
+  out.push('Versiune GDPR activă: ' + CFG.GDPR_VERSION);
+
+  var tri = ScriptApp.getProjectTriggers().filter(function (t) { return t.getHandlerFunction() === 'liveSyncWorker'; });
+  out.push('Sincronizări automate active: ' + tri.length);
+
+  ui.alert('🩺 DIAGNOSTIC PORTAL\n\n' + out.join('\n'));
+}

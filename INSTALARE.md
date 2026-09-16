@@ -210,7 +210,7 @@ sunt în **⚙️ Avansat**. Nicio funcție nu a fost eliminată.
 
 ```
 🎾 MASTERS
-├ 🔄 Sincronizează acum
+├ 📥 IMPORTĂ PREZENȚELE din registrul brut
 ├ 📅 Setează luna de lucru
 ├ ✉️ Emailuri către părinți ▸
 │   ├ 👁️ Previzualizează șablonul

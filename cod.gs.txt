@@ -81,7 +81,8 @@ function onOpen() {
   // Sus rămân doar acțiunile de zi cu zi. Restul — configurare, întreținere,
   // diagnostic — stau în „Avansat". Nicio funcție nu a fost eliminată.
   ui.createMenu('🎾 MASTERS')
-    .addItem('🔄 Sincronizează acum', 'triggerManualSync')
+    .addItem('📥 IMPORTĂ PREZENȚELE din registrul brut', 'triggerManualSync')
+    .addSeparator()
     .addItem('📅 Setează luna de lucru', 'setWorkingMonth')
     .addSeparator()
     .addSubMenu(ui.createMenu('✉️ Emailuri către părinți')
